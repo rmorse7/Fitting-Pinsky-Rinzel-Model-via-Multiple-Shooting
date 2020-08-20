@@ -1,0 +1,762 @@
+//! \b Module for parsing command line arguments
+/*! \file  */
+
+#include<string.h>
+#include<stdlib.h>
+#include<stddef.h>
+#include<iostream>
+#include<fstream>
+#include<getopt.h>
+#include<string>
+#include<math.h>
+
+#include "../nr.h"
+#include "../def.h"
+#include "../model.h"
+
+//! maximal length of input line
+#define MAXLENGTH 1000
+
+using namespace std;
+
+/*! \brief description of command line arguments 
+    
+    can be displayed by using command line argument -h 
+*/
+char usage[]="\n\t --- diffit : Fitting parameters in differential equations ---\n \
+      diffit, v 2.3 12/Apr./2006  Univ. of Freiburg, \n \
+              Authors: Martin Peifer, Kilian Bartholome\n\n				\
+      SYNOPSIS \n \t diffit [Options]  <File>\n\n \
+      DESCRIPTION\n \
+      \t -h -? -help \t help\n \
+      \t -x0 <val> \t fit starts at time <val>\n \
+      \t -x1 <val> \t fit stops at time <val>\n\
+      \t -nms <num> \t number of multiple shooting intervals \n\
+      \t -f <File> \t option file/multi-experiment definition file\n\
+      \t\t Experiments are separated by @, comments start with #\n\
+      \t\t Experiment specific parameters are : x0,x1,nms,y0,nobs\n\
+      \t\t                                      p,spline\n\
+      \t -p <list> \t initial parameters, e.g. -p 0.5,2.3\n \
+      \t -y0 <list> \t initial values, e.g. -y0 1,2\n\
+      \t -nobs <num> \t number of observed quntities\n\
+      \t -eps <val> \t integration accuracy\n\
+      \t -nognu \t turns gnuplot animation off\n\
+      \t -nomeasure \t using evently spaced multiple shooting intervals\n\
+      \t -doP <list> \t specifies paramaters to be fitted, e.g. -doP 110L\n\
+      \t -maxit <num> \t maximal number of iterations\n\
+      \t -wait \t\t wait after each iteration\n\
+      \t -usesig \t use weigths from input file\n\
+      \t -int <num> \t integrator: 1-> Runge-Kutta (default)\n \
+      \t            \t             2-> CVODES \n \
+      \t            \t             3-> ODESSA \n \
+      \t -maxstp \t maximal integration steps\n\
+      \t -minimp \t minimal improvement for iteration truncation \n\
+      \t -nowait \t do not wait until keypressed after iteration\n\
+      \t -elastic <val>  a factor (0< <val> <= 1) weakens cont. constraints \n\
+      \t -reg \t\t regularisation for ill posed problems \n\
+      \t -epsilon <val>  singular value threshold, default: 1e-10\n\
+      \t -lambda <val>   regularisation parameter, default: 1e6\n\
+      \t -spline <list>  specifies spline data for non-autonomous ode's \n\
+      \t -siminit \t simulate initial state\n\
+      \t -pert <val>\t perturbate initial try - only in combination with siminit\n\
+      \t -y0fix <list>   fixing initial state\n\
+      \t -nodamp \t switches damping off\n\
+      \t -strat <var>    optimisation strategy:\n\
+      \t                 1: MS 2: SRES (global) \n\
+      \t -opt <num> \t selects the minimiser:\n\
+      \t                 1: LSEI 2: NAG (default)\n\
+      \t -Lconst <list>  set local Parameter Constraints, \n\
+      \t                 e.g. -Lconst 2,4,3\n";
+      
+long get_list(long n,double *arg,char *string,char *desc)
+{
+  long k=1,l=0,ind=0;
+  char sep=',';
+  char *dum=new char[strlen(string)+1];
+  while(string[ind]!='\0')
+    {
+      if(k>n)
+	{
+	  cerr << "Too many arguments in" << desc << "list." << endl;
+	  exit(1);
+	}
+      dum[l]=string[ind];
+      
+      if(dum[l]==sep)
+	{
+	  dum[l]='\0';
+	  arg[k]=atof(dum);
+	  l=0;
+	  k++;
+	  ind++;
+	}
+      else
+	{
+	  ind++;
+	  l++;
+	}
+    }
+  dum[l]='\0';
+  arg[k]=atof(dum);
+
+  delete dum;
+  return(k);
+} 
+
+
+GlobExp *parseopts(int argc, char *argv[],Glob *globs,char *outstr)
+{
+  int longindex,opt;
+  int parlistSpecified=FALSE;
+  long k,l,nExp,sp;
+  char name[MAXLENGTH],line[MAXLENGTH];
+
+  // option definition
+  static struct option longopts[]={
+    {"help", 0, 0,  'h'},
+    {"help", 0, 0,  '?'},
+    {"x0"  , 1, 0,   1 },
+    {"x1"  , 1, 0,   2 },
+    {"nms"  ,1, 0,   3 },
+    {"f"    ,1, 0,   4 },
+    {"p"    ,1, 0,   5 },
+    {"y0"   ,1, 0,   6 },
+    {"nobs" ,1, 0,   7 },
+    {"eps"  ,1, 0,   8 },
+    {"nognu",0, 0,   9 },
+    {"nomeasure",0,0,10},
+    {"doP"  ,1, 0,   11},
+    {"maxit",1, 0,   12},
+    {"wait" ,0, 0,   13},
+    {"usesig",0,0,   14},
+    {"int"   ,1,0,   15},
+    {"maxstp",1,0,   17},
+    {"minimp",1,0,   18},
+    {"nowait",0,0,   19},
+    {"elastic" ,1,0, 21},
+    {"reg"     ,0,0, 22},
+    {"epsilon" ,1,0, 23},
+    {"lambda"  ,1,0, 24},
+    {"spline"  ,1,0, 25},
+    {"siminit" ,0,0, 26},
+    {"pert"    ,1,0, 27},
+    {"y0fix"   ,1,0, 28},
+    {"nodamp"  ,0,0, 29},
+    {"strat"   ,1,0, 30},
+    {"opt"     ,1,0, 31},
+    {"Lconst"  ,1,0, 32},
+    {0, 0, 0, 0}
+  };
+  //initialise some global parameters in globs
+  globs->noGnu=FALSE;
+  globs->eps=1e-6;
+  globs->npar=NPARAMS;
+  globs->noMeasurements=FALSE;
+  globs->doP=ivector(1,globs->npar);
+  for(k=1;k<=globs->npar;k++)
+    globs->doP[k]=TRUE;
+  globs->y0fix=ivector(1,NEQNS);
+  for(k=1;k<=NEQNS;k++)
+    globs->y0fix[k]=TRUE;
+  globs->maxit=1000;
+  globs->gnuFp=NULL;
+  globs->wait=FALSE;
+  globs->usesig=FALSE;
+  globs->integrator=1;
+  globs->stiff=TRUE;
+  globs->maxstp=5000;
+  globs->minimp=1e-4;
+  globs->nowait=FALSE;
+  globs->elastic=1.;
+  globs->reg=FALSE;
+  globs->epsilon=1e-10;
+  globs->lambda=1e6;
+  globs->simInit=FALSE;
+  globs->pert=0.;
+  globs->nodamp=FALSE;
+  globs->initSpline=TRUE;
+  globs->wquer=-1;
+  globs->silent=FALSE;
+  globs->strategy=1;
+  globs->minimiser=2;
+  globs->faktorL=dvector(1,NPARAMS);
+  globs->faktorLexist=FALSE;
+  for(k=1;k<=NPARAMS;k++)
+  {
+  	globs->faktorL[k]=-1;
+  }	
+  while ((opt=getopt_long_only(argc,argv,"h?",longopts,&longindex)) != -1)
+    {
+      switch(opt)
+	{
+	case 4:
+	  parlistSpecified=TRUE;
+	  strncpy(name,optarg,MAXLENGTH);
+	  break;
+	}
+    }
+  optind=0;
+  
+  GlobExp *ex;
+  if(parlistSpecified==FALSE)
+    {
+      globs->nrExp=1;
+      ex=new GlobExp[globs->nrExp+1];   
+      //initialise some global parameters
+      ex[1].fitstart=-1e99;
+      ex[1].fitend=1e99;
+      ex[1].nobs=NOBS;
+      ex[1].nvar=NEQNS;
+      ex[1].nPoints=2;
+      ex[1].splinesDefined=FALSE;
+      ex[1].y0=NULL;
+      // initialisation of the parameters
+      ex[1].par=dvector(1,NPARAMS);
+      for(k=1;k<=globs->npar;k++)
+	ex[1].par[k]=DefParameters[k-1];
+      
+      if(NSPLINES!=0)
+	{
+	  ex[1].nNodes=lvector(1,NSPLINES);
+	}
+    }
+  else //if parlist specified
+    {
+      ifstream in;      ofstream out;
+      char str[MAXLENGTH];
+
+      in.open(name);
+
+      if(!in)
+	{
+	  cerr << "parameter list " << name << "  not found\n";
+	  exit(1);
+	}
+      
+      //preprocessing of data list
+      globs->nrExp=0;
+      sprintf(str,"%s.%d",name,globs->nrExp);
+      out.open(str);
+      while(!in.eof())
+	{
+	  in.getline(str,MAXLENGTH,'\n');
+	  if(str[0]=='@')
+	    {
+	      out.flush();
+	      out.close();
+	      globs->nrExp++;
+	      sprintf(str,"%s.%d",name,globs->nrExp);
+	      out.open(str);
+	    }
+	  else if(str[0]!='#')
+	    {
+	      out << str << endl;
+	    }
+	}
+      out.flush();
+      out.close();
+      in.close();
+
+      if(globs->nrExp==0)
+	{
+	  cerr << "insuffient number of experiments, @ missing\n";
+	  exit(1);
+	}
+      
+      long _argc;
+      char *_argv[MAXLENGTH];
+
+      for(k=0;k<=MAXLENGTH;k++)
+	_argv[k]=(char *)malloc((size_t) (150*sizeof(char)));
+
+      {
+	ifstream inp;
+	
+	_argc=0;
+	sprintf(str,"%s.0",name);
+	inp.open(str);
+	
+	
+	while(!inp.eof())
+	  {
+	    inp >> _argv[_argc+1];
+	    _argc++;
+	  }
+	inp.close();
+      }
+   
+      //PARSING LIST
+
+      while((opt=getopt_long_only(_argc,_argv,"h?",longopts,&longindex)) != -1)
+	{
+	  switch(opt) 
+	    { 
+	    case 'h':
+	      cout << usage << endl;
+	      exit(1);
+	      break;
+	    case '?':
+	      cerr << usage << endl;
+	      exit(1);	
+	      break;
+	    case 8:
+	      globs->eps=fabs(atof(optarg));
+	      break;
+	    case 9:
+	      globs->noGnu=TRUE;
+	      break;
+	    case 10:
+	      globs->noMeasurements=TRUE;
+	      break;
+	    case 11:
+	      if(strlen(optarg)!=globs->npar)
+		{
+		  cerr << strlen(optarg) << " parameter(s) specified instead of " <<  globs->npar << ".\n";
+		  exit(1);
+		}
+	      for(k=0;k < globs->npar;k++)
+		{
+		  if(optarg[k]=='0')
+		    globs->doP[k+1]=FALSE;
+		  else if (optarg[k]=='L')
+		    globs->doP[k+1]='L'; 
+		  else
+		    globs->doP[k+1]=TRUE;
+		}
+	      break;
+	    case 12:
+	      globs->maxit=abs(atol(optarg));
+	      break;
+	    case 13:
+	      globs->wait=TRUE;
+	      break;
+	    case 14:
+	      globs->usesig=TRUE;
+	      break;
+	    case 15:
+	      globs->integrator=abs(atoi(optarg));
+	      break;
+	    case 17:
+	      globs->maxstp=abs(atoi(optarg));
+	      break;
+	    case 18:
+	      globs->minimp=fabs(atof(optarg));
+	      break;
+	    case 19:
+	      globs->nowait=TRUE;
+	      break;
+	    case 21:
+	      globs->elastic=fabs(atof(optarg));
+	      if(globs->elastic > 1. || globs->elastic == 0.)
+		{
+		  cerr << "Insufficient range of -elast <val> \n";
+		  exit(1);
+		}
+	      break;
+	    case 22:
+	      globs->reg=TRUE;
+	      break;
+	    case 23:
+	      globs->epsilon=fabs(atof(optarg));
+	      break;
+	    case 24:
+	      globs->lambda=fabs(atof(optarg));
+	      break;
+	    case 26:
+	      globs->simInit=TRUE;
+	      break;
+	    case 27:
+	      globs->pert=fabs(atof(optarg));
+	      break;
+	    case 28:
+	      if(strlen(optarg)!=NEQNS)
+		{
+		  cerr << strlen(optarg) << " variable(s) specified instead of " <<  NEQNS << ".\n";
+		  exit(1);
+		}
+	      for(k=0;k < NEQNS;k++)
+		{
+		  if(optarg[k]=='0')
+		    globs->y0fix[k+1]=FALSE;
+		  else
+		    globs->y0fix[k+1]=TRUE;
+		}
+	      break;
+	    case 29:
+	      globs->nodamp=TRUE;
+	      break; 
+	    case 30:
+	      globs->strategy=abs(atoi(optarg));
+	      break;
+	    case 31:
+	      globs->minimiser=abs(atoi(optarg));
+	      break;
+	    case 32:
+	      get_list(globs->npar,globs->faktorL,optarg," local paramter constraints ");
+	      globs->faktorLexist=TRUE;
+	      break;	  	      
+	    default:
+	      cerr << endl;
+	      cerr << "Parsing parameter list produced errors.\n\n";
+	      exit(1);
+	    }
+	}
+
+      optind=0;
+      ex=new GlobExp[globs->nrExp+1];   
+  
+      //PARSING experiment specific list
+      for(nExp=1;nExp<=globs->nrExp;nExp++)
+	{
+	  //initialise some global parameters
+	  ex[nExp].fitstart=-1e99;
+	  ex[nExp].fitend=1e99;
+	  ex[nExp].nobs=NOBS;
+	  ex[nExp].nvar=NEQNS;
+	  ex[nExp].nPoints=2;
+	  ex[nExp].splinesDefined=FALSE;
+	  ex[nExp].y0=NULL;
+	  // initialisation of the parameters
+	  ex[nExp].par=dvector(1,NPARAMS);
+	  for(k=1;k<=globs->npar;k++)
+	    ex[nExp].par[k]=DefParameters[k-1];
+	  
+	  if(NSPLINES!=0)
+	    {
+	      ex[nExp].nNodes=lvector(1,NSPLINES);
+	    }
+
+	  _argc=0;
+
+	  ifstream inp;
+	  sprintf(str,"%s.%d",name,nExp);
+	  inp.open(str);
+
+	  while(!inp.eof())
+	    {
+	      inp >> _argv[_argc+1];
+	      _argc++;
+	    }
+
+	  inp.close();
+	  while((opt=getopt_long_only(_argc,_argv,"h?",longopts,&longindex)) != -1)
+	     {
+	       switch(opt)
+		 {
+		 case 1:
+		   ex[nExp].fitstart=atof(optarg);
+		   break;
+		 case 2:
+		   ex[nExp].fitend=atof(optarg);
+		   break;
+		 case 3:
+		   ex[nExp].nPoints=abs(atol(optarg));
+		   ex[nExp].nPoints+=1;
+		   break;
+		 case 5:
+		   get_list(globs->npar,ex[nExp].par,optarg," parameter ");
+		   break;
+		 case 6:
+		   ex[nExp].y0=dvector(1,ex[nExp].nvar);
+		   for(k=1;k<=ex[nExp].nvar;k++)
+		     ex[nExp].y0[k]=0.;
+		   k=get_list(ex[nExp].nvar,ex[nExp].y0,optarg," initial values ");
+		   if(k!=ex[nExp].nvar)
+		     {
+		       cerr << ex[nExp].nvar << " initial values required.\n";
+		       exit(1);
+		     }
+		   break;
+		 case 7:
+		   ex[nExp].nobs=atol(optarg);
+		   break;
+		 case 25:
+		   k=0;
+		   l=1;
+		   ex[nExp].splinesDefined=TRUE;
+		   while(optarg[k]!='\0')
+		     {
+		       if(optarg[k]==',')
+			 l++;
+		       k++;
+		     }
+		   if(l!=NSPLINES)
+		     {
+		       cerr << "Incompatible number of splines.\n";
+		       exit(1);
+		     }
+		   ex[nExp].splineFile=new string[l+1];
+		   l=1;
+		   sp=0;
+		   k=0;
+		   while(optarg[k]!='\0')
+		     {
+		       if(optarg[k]==',')
+			 {
+			   line[sp]='\0';
+			   ex[nExp].splineFile[l]=(string)line;
+			   sp=0;
+			   l++;
+			 }
+		       else
+			 {
+			   line[sp]=optarg[k];
+			   sp++;
+			 }
+		       k++;
+		     }
+		   line[sp]='\0';
+		   ex[nExp].splineFile[l]=(string)line;
+		   break;
+		 default:
+		   cerr << endl;
+		   cerr << "Parsing parameter list produced errors.\n\n";
+		   exit(1);
+		 }
+	     }
+
+	   //Parsing file name
+	   if((_argc-optind)!=1)
+	     {
+	       cerr << "No/Too many datafile(s) specified for experiment " << nExp << " .  \n\n";
+	       exit(1);
+	     }
+	   else
+	     {
+	       ex[nExp].fileName=new char[strlen(_argv[optind])+1];
+	       strcpy(ex[nExp].fileName,_argv[optind]);
+	     }
+	   //checking if x0 < x1
+	   if(ex[nExp].fitstart >= ex[nExp].fitend)
+	     {
+	       cerr << "x0 must be smaller than x1.\n";
+	       exit(1);
+	     }
+	   optind=0;
+	}
+      
+     
+      //for(k=0;k<=MAXLENGTH;k++)
+      //free(_argv[k]);
+
+      sprintf(str,"rm -f %s.*",name);
+      system(str);
+    }
+
+  optind=0;
+  
+  while((opt=getopt_long_only(argc,argv,"h?",longopts,&longindex)) != -1)
+    {
+      switch(opt)
+	{
+	case 'h':
+	  cout << usage << endl;
+	  exit(1);
+	  break;
+	case '?':
+	  cerr << usage << endl;
+	  exit(1);	
+	  break;
+	case 1:
+	  ex[1].fitstart=atof(optarg);
+	  break;
+	case 2:
+	  ex[1].fitend=atof(optarg);
+	  break;
+	case 3:
+	  ex[1].nPoints=abs(atol(optarg));
+	  ex[1].nPoints+=1;
+	  break;
+	case 4:
+	  break;
+	case 5:
+	  get_list(globs->npar,ex[1].par,optarg," parameter ");
+	  break;
+	case 6:
+	  ex[1].y0=dvector(1,ex[1].nvar);
+	  for(k=1;k<=ex[1].nvar;k++)
+	    ex[1].y0[k]=0.;
+	  k=get_list(ex[1].nvar,ex[1].y0,optarg," initial values ");
+	  if(k!=ex[1].nvar)
+	    {
+	      cerr << ex[1].nvar << " initial values required.\n";
+	      exit(1);
+	    }
+	  break;
+	case 7:
+	  ex[1].nobs=atol(optarg);
+	  break;
+	case 8:
+	  globs->eps=fabs(atof(optarg));
+	  break;
+	case 9:
+	  globs->noGnu=TRUE;
+	  break;
+	case 10:
+	  globs->noMeasurements=TRUE;
+	  break;
+	case 11:
+	  if(strlen(optarg)!=globs->npar)
+	    {
+	      cerr << strlen(optarg) << " parameter(s) specified instead of " <<  globs->npar << ".\n";
+	      exit(1);
+	    }
+	  for(k=0;k < globs->npar;k++)
+	    {
+	      if(optarg[k]=='0')
+		globs->doP[k+1]=FALSE;
+	      else if (optarg[k]=='L')
+		globs->doP[k+1]='L'; 
+	      else
+		globs->doP[k+1]=TRUE;
+	    }
+	  break;
+	case 12:
+	  globs->maxit=abs(atol(optarg));
+	  break;
+	case 13:
+	  globs->wait=TRUE;
+	  break;
+	case 14:
+	  globs->usesig=TRUE;
+	  break;
+	case 15:
+	  globs->integrator=abs(atoi(optarg));
+	  break;
+	case 17:
+	  globs->maxstp=abs(atoi(optarg));
+	  break;
+	case 18:
+	  globs->minimp=fabs(atof(optarg));
+	  break;
+	case 19:
+	  globs->nowait=TRUE;
+	  break;
+	case 21:
+	  globs->elastic=fabs(atof(optarg));
+	  if(globs->elastic > 1. || globs->elastic == 0.)
+	    {
+	      cerr << "Insufficient range of -elast <val> \n";
+	      exit(1);
+	    }
+	  break;
+	case 22:
+	  globs->reg=TRUE;
+	  break;
+	case 23:
+	  globs->epsilon=fabs(atof(optarg));
+	  break;
+	case 24:
+	  globs->lambda=fabs(atof(optarg));
+	  break;
+	case 25:
+	  k=0;
+	  l=1;
+	  ex[1].splinesDefined=TRUE;
+	  while(optarg[k]!='\0')
+	    {
+	      if(optarg[k]==',')
+		l++;
+	      k++;
+	    }
+	  if(l!=NSPLINES)
+	    {
+	      cerr << "Incompatible number of splines.\n";
+	      exit(1);
+	    }
+	  ex[1].splineFile=new string[l+1];
+	  l=1;
+	  sp=0;
+	  k=0;
+	  while(optarg[k]!='\0')
+	    {
+	      if(optarg[k]==',')
+		{
+		  line[sp]='\0';
+		  ex[1].splineFile[l]=(string)line;
+		  sp=0;
+		  l++;
+		}
+	      else
+		{
+		  line[sp]=optarg[k];
+		  sp++;
+		}
+	      k++;
+	    }
+	  line[sp]='\0';
+	  ex[1].splineFile[l]=(string)line;
+	  break;	   
+	case 26:
+	  globs->simInit=TRUE;
+	  break;
+	case 27:
+	  globs->pert=fabs(atof(optarg));
+	  break;
+	case 28:
+	  if(strlen(optarg)!=NEQNS)
+	    {
+	      cerr << strlen(optarg) << " variable(s) specified instead of " <<  NEQNS << ".\n";
+	      exit(1);
+	    }
+	  for(k=0;k < NEQNS;k++)
+	    {
+	      if(optarg[k]=='0')
+		globs->y0fix[k+1]=FALSE;
+	      else
+		globs->y0fix[k+1]=TRUE;
+	    }
+	  break;
+	case 29:
+	  globs->nodamp=TRUE;
+	  break;
+	case 30:
+	  globs->strategy=abs(atoi(optarg));
+	  break;
+	case 31:
+	  globs->minimiser=abs(atoi(optarg));
+	  break;
+	case 32:
+	  get_list(globs->npar,globs->faktorL,optarg," local paramter constraints ");
+	  globs->faktorLexist=TRUE;
+	  break;
+	default:
+	  cerr << endl;
+	  cerr << "Parsing command line options produced errors \n\n";
+	  exit(1);
+	}
+    }
+  //checking if x0 < x1
+  if(ex[1].fitstart >= ex[1].fitend)
+    {
+      cerr << "x0 must be smaller than x1.\n";
+      exit(1);
+    }
+  
+  //Parsing file name for a single experiment
+  if((argc-optind)!=1 && parlistSpecified==FALSE)
+    {
+      cerr << "No/Too many datafile(s) specified.  \n\n";
+      exit(1);
+    }
+  else if(parlistSpecified==FALSE)
+    {
+      ex[1].fileName=new char[strlen(argv[optind])+1];
+      strcpy(ex[1].fileName,argv[optind]);
+    }
+  
+  if(NSPLINES!=0)
+    {
+      for(k=1;k<=globs->nrExp;k++)
+	{
+	  if(ex[k].splinesDefined==FALSE)
+	    {
+	      cerr << "Please specify spline data in experiment " << k << ".\n";
+	      exit(1);
+	    }
+	}
+    }
+  
+  return(ex);
+}
+

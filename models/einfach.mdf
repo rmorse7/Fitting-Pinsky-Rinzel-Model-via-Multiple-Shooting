@@ -1,0 +1,15 @@
+<DOC>
+Einfaches modell
+</DOC>
+
+<PAR>
+phi	1	0	10
+</PAR>
+
+<VAR>
+X	1	0	10
+</VAR>
+
+<ODE>
+dXdt=-phi*X
+</ODE>

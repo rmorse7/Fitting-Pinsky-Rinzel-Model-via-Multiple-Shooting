@@ -1,0 +1,28 @@
+<DOC>
+Rulkov Oscillator
+</DOC>
+
+
+<VAR>
+X	1.256
+V	-1.04744
+W	-1.25201
+</VAR>
+
+
+#name   guess   min     max     comments
+<PAR>
+a	-0.679625
+b	-2.02856
+c1	3.24354
+c3	-4.5649
+c5	1.81249
+c7	-0.263882
+</PAR>
+
+
+<ODE>
+dXdt=V
+dVdt=W
+dWdt=a*W+b*V+(c1*X+c3*pow(X,3)+c5*pow(X,5)+c7*pow(X,7))
+</ODE>

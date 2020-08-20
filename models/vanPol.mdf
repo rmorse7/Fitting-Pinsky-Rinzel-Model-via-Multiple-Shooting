@@ -1,0 +1,17 @@
+<DOC>
+vanDerPol
+</DOC>
+
+<VAR>
+y1      1
+y2      0
+</VAR>
+
+<PAR>
+mu	1
+</PAR>
+
+<ODE>
+dy1dt=y2;
+dy2dt=mu*(1.-y1*y1)*y2-y1
+</ODE>

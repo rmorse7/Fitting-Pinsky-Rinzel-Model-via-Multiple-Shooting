@@ -1,0 +1,24 @@
+<DOC>
+Model from Wolkenhauer Olaf
+</DOC>
+
+<VAR>
+x1	12
+x2	12
+x3	0
+x4	0
+</VAR>
+
+
+<PAR>
+k1	1	0
+k2	1	0
+k3	1	0
+</PAR>
+
+<ODE>
+dx1dt=-k1*x1*x2+k2*x3
+dx2dt=-k1*x1*x2+(k2+k3)*x3
+dx3dt=k1*x1*x2-(k2+k3)*x3
+dx4dt=k3*x3
+</ODE>

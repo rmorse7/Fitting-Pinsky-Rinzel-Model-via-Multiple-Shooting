@@ -1,0 +1,563 @@
+#include<iostream>
+#include<fstream>
+#include<math.h>
+#include<string.h>
+#include<stdio.h>
+
+#include "../def.h"
+#include "../model.h"
+#include "../nr.h"
+
+using namespace std;
+
+
+//Begin definition of sub-module prototypes
+
+//Module modules/setInitialValues.cc
+
+void integrateRK(Glob *globs,double ystart[], double p[], long nvar, double x1, double x2,double eps,
+		 double h1, double hmin, long *nok, long *nbad,
+		 void (*derivType) (double, double[], double[], double[]));
+
+//void integrateCVODES(Glob *globs,double ystart[], double p[], long nvar, double x1, double x2,double eps,int sensi);
+
+void call_odessa(Glob *globs,GlobExp *ex,int N, int M_PAR_GES, char *doP,
+   int D_FLAG, int MAX_NR_STEP, int STIFF, int inhomogen, int nmesh,
+   double *tmesh, double t0, double t1, double *zustand, double **y,
+   double ***dmds, double ***dmdp, double **dyds, double **dydp,
+   double *parameter, double rtol, double atol,
+		 double min_stepsize, double max_stepsize, double initial_stepsize);
+//End definition of sub-module prototypes
+
+
+/* compute maximum number of measuring points between two mesh points */
+long maxTableLen(double *mesh, long nPoints, double *xMeasure, long nMeasure)
+{
+    int i,j, max=0;
+
+    return(nPoints > nMeasure ? nPoints : nMeasure);  // to be improved
+}
+
+// copy n doubles from src to dest
+inline void dcopy (double * dest, double * src, long n)
+{
+  memcpy (dest + 1, src + 1, n * sizeof (double));
+}
+
+// fill with zeros
+inline void dfill0 (double * x, long n)
+{
+  memset (x + 1, 0, n * sizeof (double));
+}
+
+
+void initYt (double *Yt, double *state)
+{
+  // initialise Yt
+  if (state)
+    dcopy (Yt, state, NEQNS);    // original state vector
+  dfill0 (Yt + NEQNS, (NPARAMS + NEQNS) * NEQNS);    // 0 in middle and rear part
+  for (long i = 1; i <= NEQNS; i++)       // identity matrix in rear part dy/dy0
+    Yt[(NPARAMS + i) * NEQNS + i] = 1;
+}                       
+
+inline double max(double a,double b)
+{
+  if(a>=b)
+    return(a);
+  else
+    return(b);
+}
+
+
+
+void sensDerivs (double t, double *Yt, double *Ft, double *p)
+{
+  //  sensitivity equations
+  // P=(p,y0)
+  // S=dy/dP
+  // Y=(y,S)
+  // F=dY/dt=(f,df/dy*S+df/dP)
+  // Y and F are stored in column major format and rolled out as Yt and Ft
+
+  long i, j, k;
+  dfill0 (Ft, (1 + NPARAMS + NEQNS) * NEQNS);       // initialize to zero
+
+  // ode, inhomo and jacobi set only non-zero elements. All 3 functions are defined in model.cc
+  // inhomo expects a dmatrix; we create one whose data lies in Ft
+  double **dfdpt = new double *[NPARAMS] - 1;
+  for (i = 1; i <= NPARAMS; i++)
+    dfdpt[i] = Ft + i * NEQNS;
+  ode (t, Yt, Ft, p);           // first part of Y,F are y,f
+  inhomo (t, Yt, dfdpt, p);     // fill df/dp into F
+  delete[]++ dfdpt;
+
+  // now F=df/dP
+  // add M*S, M=df/dy
+  double **M = dmatrix (1, NEQNS, 1, NEQNS);
+  dfill0 (M[1], NEQNS * NEQNS);
+  jacobi (t, Yt, M, p);         // get M
+  for (i = 1; i <= NEQNS; i++)
+    for (j = 1; j <= NPARAMS + NEQNS; j++)
+      {
+        double &sum = Ft[j * NEQNS + i];
+        for (k = 1; k <= NEQNS; k++)
+          sum += M[k][i] * Yt[j * NEQNS + k];
+      }                         // for i,j
+  free_dmatrix (M, 1, NEQNS, 1, NEQNS);
+ } // sensDerivs
+
+
+void tabulateValues (Glob *globs,GlobExp *ex,double t0, double t1, double *t, long n, double *state,
+		     double **y, double ***dmds, double ***dmdp, double **dyds,double **dydp)
+{
+  // integrate from t0 to t1, storing values at t[1..n]
+  // t[n] may be ==t1 or <t1
+  // in the latter case we will integrate from t[n] to t1 in the
+  // final loop k=n+1 without storing any data points
+  // If dmds!=NULL, compute derivatives as well
+  // and store them in dmds,dmdp,dyds,dydp
+  // with respect to observation, see odin.doc: Observation function
+  
+  //BEGIN von Felix veraendert
+  //   double hmin=max(fabs(t0),fabs(t1))*1e-8;
+  double hmin = max (fabs (t0), fabs (t1)) * 1e-15;
+  // Das legt die minimale Schrittweite, die ODESSA erlaubt wird fest.
+  // hmin sollte so gross sein, dass es noch nicht zu Abschneidefehlern
+  // beim Aufaddieren zum Zeitpunkt kommt, deshalb die max(...)-Konstruktion.
+  // Der Faktor 1e-15 gewaehrleistet, dass noch richtig kleine Schritte gemacht
+  // werden duerfen, aber man trotzdem von der rel. Maschinengenauigkeit (im Bereich
+  // von 1e-18 noch einigermassen weit entfernt bleibt. 
+  // Man koennte das in Zukunft noch in einen externen Parameter stecken.
+  //END von Felix veraendert
+
+  long nPExp=globs->npar;
+  long nVar=ex->nvar;
+  long nobs=NOBS;
+  int generic;
+  double *p=ex->par;
+  double eps=globs->eps;  
+  double h1 = (t1 - t0) * .01;
+  long nok,nbad;
+
+  initInt(globs,ex);
+  if (n > 0 && (t0 > t[1] || t1 < t[n]))
+    {
+      cerr << "tabVal: t[1..n] exceeds [t0;t1]" << endl;
+      throw 1;
+    }
+
+  if (globs->integrator==3)
+    {                           // said -odessa
+#ifdef ODESSA
+      double &rtol = eps;
+//BEGIN von Felix veraendert
+//       double atol=eps*1e-6;  
+      double atol = eps;
+// Fehlerkontrolle fuer ODESSA: Das Spiel mit relativem und absolutem LOKALEN(!)
+// Fehler sollte man unbedingt noch in externe Parameter stecken. Doku dazu
+// siehe odessa.f: ATOL und RTOL
+//END von Felix veraendert
+      // odeint uses TINY=1e-30 in a similar way as odessa's atol, 
+      // but atol<1e-16 or so results in step size underflow
+      
+      int odeint_MAXSTP=globs->maxstp;
+      int d_flag=1;
+      int stif=globs->stiff;
+      char doPStr[globs->npar+1];
+      
+      for(long i=1;i<=globs->npar;i++)
+	doPStr[i]=(char)globs->doP[i];
+      
+      call_odessa(globs,ex,nVar, nPExp, doPStr,
+         d_flag, odeint_MAXSTP, stif,
+         TRUE, n, t, t0, t1, state, y,
+         dmds, dmdp, dyds, dydp, p, rtol, atol, hmin, t1 - t0, h1);
+
+      return;
+#else
+      cerr << "-odessa used but not linked" << endl;
+      throw 1;
+#endif // ODESSA
+    }                           // if odessa
+      double *gy=dvector(1,nobs);
+      long i, j, k;
+      double xx1 = t0, xx2;
+      
+      if (dmds)
+	{                           // compute sensitivities
+	  // create extended state vector Y
+	  double **Yt = dmatrix (0, nPExp + nVar, 1, nVar);
+	  initYt (Yt[0], state);
+	  
+	  // chain rule for extra observables
+	  double **dgdy, **dgdp;
+	  
+	  dgdy = dmatrix (1, nobs, 1, nVar);
+	  dgdp = dmatrix (1, nobs, 1, nPExp);
+	  dfill0 (dgdy[1], nobs * nVar);
+	  dfill0 (dgdp[1], nobs * nPExp);
+	  
+	  
+	  for (k = 1; k <= n + 1; k++)
+	    {
+	      xx2 = (k > n) ? t1 :  // end point
+		t[k];               // data point
+	      
+	      globs->rkqs_ign = (nPExp + nVar) * nVar;
+	      if (xx2 > xx1 && nVar > 0)
+		{		  
+		  if(globs->integrator==1)
+		    {
+		      //Runge-Kutta integation
+		      integrateRK(globs,Yt[0], p, (1 + nPExp + nVar) * nVar, xx1, xx2,
+				  eps, h1, hmin, &nok, &nbad, sensDerivs);
+		    }
+		  else if(globs->integrator==2)
+		    {
+		      cerr << "CVODES not optimized skip integrator" << endl;
+                      throw 1;
+	    
+		      //integrateCVODES(globs,Yt[0], p, (1 + nPExp + nVar) * nVar, xx1, xx2,eps,TRUE);
+		    }
+		}
+	      // write state to y and sensitivities to dm/dp and dm/ds
+	      if (k <= n)
+		{
+		  dcopy (y[k], Yt[0], nVar);
+		  generic=observation(globs,ex,xx2, y[k],gy, p, dgdy, dgdp);
+		  for(i=1;i<=nobs;i++)
+		    y[k][i]=gy[i];
+		  
+		  for (i = 1; i <= nobs; i++)
+		    {
+		      for (j = 1; j <= nPExp; j++)
+			{
+			  double &dest = dmdp[k][i][j];
+			  if (!generic)
+			    {
+			      dest = dgdp[i][j];
+			      for (long l = 1; l <= nVar; l++)
+				dest += dgdy[i][l] * Yt[j][l];
+			    }
+			  else
+			    dest = Yt[j][i];
+			}           // for j
+		      for (j = 1; j <= nVar; j++)
+			{
+			  double &dest = dmds[k][i][j];
+			  if (!generic)
+			    {
+			      dest = 0;
+			      for (long l = 1; l <= nVar; l++)
+				dest += dgdy[i][l] * Yt[nPExp + j][l];
+			    }
+			  else
+			    dest = Yt[nPExp + j][i];
+			}           // for j
+		    }               // for i
+		}                   // if k<=n
+	      xx1 = xx2;
+	    }                       // for k
+	  
+	  // copy state and its derivatives to state, dydp and dyds
+	  dcopy (state, Yt[0], nVar);       // original state vector
+	  // write sensitivities to dy/dp and dy/ds
+	  for (i = 1; i <= nVar; i++)
+	    {
+	      for (j = 1; j <= nPExp; j++)
+		dydp[i][j] = Yt[j][i];
+	      for (j = 1; j <= nVar; j++)
+		dyds[i][j] = Yt[nPExp + j][i];
+	    }
+	  
+	  free_dmatrix (dgdp,1 ,nobs , 1, nPExp);
+	  free_dmatrix (dgdy,1 ,nobs, 1, nVar);
+	  free_dmatrix (Yt, 0, nPExp + nVar, 1, nVar);
+	}
+      else
+	{                           // !dmds
+	  for (k = 1; k <= n + 1; k++)
+	    {
+	      xx2 = (k <= n) ? t[k] : t1;
+	      
+	      globs->rkqs_ign = 0;
+	      if (xx2 > xx1 && nVar > 0)
+		{ 
+		  if(globs->integrator==1)
+		    {
+		      //Runge-Kutta integration
+		      integrateRK(globs,state, p, nVar, xx1, xx2,
+				  eps, h1, hmin, &nok, &nbad, ode);
+		    }
+		  else if(globs->integrator==2)
+		    {
+	              cerr << "CVODES not optimized skip integrator" << endl;
+                      throw 1;
+
+		      //integrateCVODES(globs,state, p, nVar, xx1, xx2,eps,FALSE);
+		    }
+		}
+	      if (k <= n)
+		{
+		  dcopy (y[k], state, nVar);
+		  generic=observation (globs,ex,xx2, y[k],gy,p, NULL, NULL);
+		  for(i=1;i<=nobs;i++)
+		    y[k][i]=gy[i];
+		}
+	      xx1 = xx2;
+	    }                       // for k
+	}           
+      // if dmds else
+      free_dvector(gy,1,nobs); 
+}
+
+
+void intODE(GlobExp *ex,Glob *globs,int doDerivs,int doPlot,long expNr)
+{
+  long i,j,k,ksav,l,m,n,nok,nbad;
+  long nobs=ex->nobs;
+  long nPoints=ex->nPoints, nvar=ex->nvar, nMeasure=ex->nMeasure;
+  double *mesh=ex->mesh, *xMeasure=ex->xMeasure;
+  long tableLen=maxTableLen(mesh, nPoints, xMeasure, nMeasure)+1; 
+  double temp, h,ymin,ymax;
+  
+  // allocate memory
+  double *ys=dvector(1,nvar);
+  double *xTab=dvector(1,tableLen);
+  double **yTab=dmatrix(1,tableLen,1,nvar);
+  double ***dTabds, ***dTabdp;
+  char name[50];
+  ofstream gnuout;
+  ofstream outout;
+
+
+  //gnuout.open("gnuout.dat");
+  
+  // compute derivatives?
+  // if not, don't write to graphics either
+  // (no genuine integration, but only estimation of omega)
+  if (doDerivs) 
+    {
+      dTabds=d3tensor(1,tableLen,1,nvar,1,nvar);
+      dTabdp=d3tensor(1,tableLen,1,nvar,1,globs->npar);
+    } 
+  else 
+    {
+      dTabds=NULL; 
+      dTabdp=NULL;
+    }
+  
+
+  // first mesh point
+  if (doDerivs) {
+    for (i=1; i<=nvar; ++i) 
+      {
+	for (j=1; j<=nvar; ++j)
+	  { 
+	    ex->dyds[1][i][j] = (i==j) ? 1 : 0;
+	    ex->dmds[1][i][j] = (i==j) ? 1 : 0;
+	  }
+	for (j=1; j<=globs->npar; ++j)  
+	  {
+	    ex->dydp[1][i][j] = 0;
+	    ex->dmdp[1][i][j] = 0;
+	  }
+      }
+  }
+  for (j=1; j<=nvar; ++j) 
+    ex->yComp[1][j]=ex->yTry[1][j];
+
+
+  if (doDerivs && mesh[1]==xMeasure[1]) 
+    {
+      observation(globs,ex,mesh[1],ex->yTry[1],ex->yPred[1],ex->par,ex->dmds[1],ex->dmdp[1]);
+    }
+  
+  // integrate
+  k=1;
+  ksav=1;
+  if (mesh[1]==xMeasure[1]) 
+    {
+      k=2; 
+      ksav=2;
+    }
+  for (i=1; i< nPoints; ++i) 
+    {   // given starting values
+      for (j=1; j<=nvar; ++j) 
+	ys[j]=ex->yTry[i][j];  
+      if (xMeasure[k]<mesh[i]) 
+	{
+	  cerr << "fatal: intODE: xMeasure table corrupted (mesh: "
+	       << mesh[i] << ", xMeasure: " << xMeasure[k] << ")\n";
+	  throw 1;
+	}
+      // build table of measuring points
+      n=1;
+      while (k <= nMeasure && xMeasure[k]<=mesh[i+1]) 
+	xTab[n++]=xMeasure[k++];
+      xTab[n]=mesh[i+1];
+#ifdef PRINTMESH
+      *dbg << "Mesh point " << mesh[i] << ": xTab = (";
+      for (j=1; j<=n; ++j) 
+	*dbg << '\t' << xTab[j];
+      *dbg << ")\n";
+      dbg->flush();
+#endif      
+      //integration 
+      tabulateValues(globs,ex,mesh[i],mesh[i+1],xTab,n,ys,yTab, dTabds, dTabdp,ex->dyds[i+1],ex->dydp[i+1]);
+
+#ifdef PRINTINTEGRATE
+      *dbg << "Integration returned\t  (";
+      for (j=1; j<=n; ++j) 
+	{
+	  for (l=1; l<=nvar; ++l) 
+	    *dbg << " " << yTab[j][l];
+	  *dbg << ",";
+	}
+      *dbg << ")\n";
+      dbg->flush();
+#endif      
+      for (j=1; j<=ex->nvar; ++j)
+	ex->yComp[i+1][j]=ys[j];   // store value at next mesh point
+
+      for (j=ksav; j<k; ++j)          // store value at measuring points
+	{
+	  for (l=1; l<=ex->nobs; ++l) 
+	    {
+	      ex->yPred[j][l]=yTab[j-ksav+1][l];
+	      if (doDerivs) 
+		{
+		  for (m=1; m<=ex->nvar; ++m)
+		    ex->dmds[j][l][m]=dTabds[j-ksav+1][l][m];
+		  for (m=1; m<=globs->npar; ++m)
+		    ex->dmdp[j][l][m]=dTabdp[j-ksav+1][l][m];
+		}
+	    }
+	}
+      ksav=k;
+    }
+
+  //GnuPlotting
+  long mind=2; //mesh index
+  if(doDerivs && (globs->noGnu==FALSE) && doPlot==TRUE)
+    { 
+      for(l=1;l<=ex->nobs;l++) //loop over observations
+	{
+	  if(globs->gnuindex <= globs->ngnu)
+	    {
+	      mind=2;
+	      ofstream gnuout;
+	      gnuout.open("gnuout.dat");
+	      ymax=ex->yPred[1][l]; //used to set the plot limits
+	      ymin=ex->yPred[1][l];	      
+	      for(j=1;j<=ex->nMeasure;j++)
+		{
+		  //write in file gnuout.dat the x-coordinate (time), the predicted and the measured observation
+		  gnuout << ex->xMeasure[j] << "\t" << ex->yPred[j][l] << "\t" << ex->yMeasure[j][l] << endl;
+		  if(mesh[mind] <= ex->xMeasure[j])
+		    {
+		      observation (globs,ex,mesh[mind],ex->yComp[mind],ys,ex->par,NULL,NULL);
+		      gnuout << mesh[mind] << "\t" << ys[l] << endl << endl;
+		      observation (globs,ex,mesh[mind],ex->yTry[mind],ys,ex->par,NULL,NULL);
+		      gnuout << mesh[mind] << "\t" << ys[l] << endl;
+		      mind++;
+		    }
+		  //determine y-range
+		  if(ymax <= ex->yPred[j][l])
+		    ymax=ex->yPred[j][l];
+		  if(ymin >= ex->yPred[j][l])
+		    ymin=ex->yPred[j][l];
+		  if(ymax <= ex->yMeasure[j][l])
+		    ymax=ex->yMeasure[j][l];
+		  if(ymin >= ex->yMeasure[j][l])
+		    ymin=ex->yMeasure[j][l];
+		}
+	      gnuout.flush();
+	      gnuout.close();
+	      
+	      //plot file after it is ready
+	      fprintf(globs->gnuFp[globs->gnuindex],"reset\n");
+	      fprintf(globs->gnuFp[globs->gnuindex],"set yrange[%f:%f]\n",ymin-0.01*ymin,ymax+0.01*ymax);
+	      fprintf(globs->gnuFp[globs->gnuindex],"set xrange[%f:%f]\n",ex->xMeasure[1],ex->xMeasure[ex->nMeasure]);	      
+	      fflush(globs->gnuFp[globs->gnuindex]);
+	      //fprintf(globs->gnuFp[globs->gnuindex],"plot \"gnuout.dat\" title \"\"w l 3,\"gnuout.dat\" u 1:3 title \"\" 1 \n");
+	      //plots the measured values as crosses and the predicted ones as lines
+	//RCL
+	if(globs->savegnupng==1)
+	{
+		fprintf(globs->gnuFp[globs->gnuindex],"set terminal pngcairo\n");
+		//iter_RCL_++;
+		//fprintf(globs->gnuFp[globs->gnuindex],"set output '/home/rhonald/Workspace/invariance_project/diffit_pr2/png/iter%ld.png'\n",globs->nIter);
+		fprintf(globs->gnuFp[globs->gnuindex],"set output './png/iter%ld.png'\n",globs->nIter);
+	        fprintf(globs->gnuFp[globs->gnuindex],"plot \"gnuout.dat\" using 1:3 title \"measured\", \"\" using 1:2 title \"predicted\" with lines \n");
+	        fflush(globs->gnuFp[globs->gnuindex]);
+	}
+	else if(globs->savegnupng==2)
+	{
+                if(globs->nIter+1==globs->maxit)
+                {
+                        //cout << "Saving the plot for the last iteration" << globs->nIter << ":" << globs->maxit << endl;
+			fprintf(globs->gnuFp[globs->gnuindex],"set terminal pngcairo\n");
+			//fprintf(globs->gnuFp[globs->gnuindex],"set output './png/lastiter%ld.png'\n",globs->nIter);
+			fprintf(globs->gnuFp[globs->gnuindex],"set output './png/lastiter.png'\n");
+	        	fprintf(globs->gnuFp[globs->gnuindex],"plot \"gnuout.dat\" using 1:3 title \"measured\", \"\" using 1:2 title \"predicted\" with lines \n");
+	        	fflush(globs->gnuFp[globs->gnuindex]);
+ 		}
+	}
+        else if(globs->savegnupng==3)
+        {
+               //Keep saving the current plot to the same filename, so the last plot gets saved even if the fit terminates before the maximum iteration
+                //if(globs->nIter+1==globs->maxit)
+                {
+                        //cout << "Saving the plot for the last iteration" << globs->nIter << ":" << globs->maxit << endl;
+                        fprintf(globs->gnuFp[globs->gnuindex],"set terminal pngcairo\n");
+                        //fprintf(globs->gnuFp[globs->gnuindex],"set output './png/lastiter%ld.png'\n",globs->nIter);
+                        fprintf(globs->gnuFp[globs->gnuindex],"set output './png/lastiter.png'\n");
+                        fprintf(globs->gnuFp[globs->gnuindex],"plot \"gnuout.dat\" using 1:3 title \"measured\", \"\" using 1:2 title \"predicted\" with lines \n");
+                        fflush(globs->gnuFp[globs->gnuindex]);
+                }
+        }
+        else
+        {
+	      fprintf(globs->gnuFp[globs->gnuindex],"plot \"gnuout.dat\" using 1:3 title \"measured\", \"\" using 1:2 title \"predicted\" with lines \n");
+	      fflush(globs->gnuFp[globs->gnuindex]);
+              //DELAY
+	      for(long dd=1;dd<=1000000;dd++)
+	       1+1;
+        }
+	    }
+	  sprintf(name,"Gnuout_Exp%d_Obs%d.dat",expNr,l);
+	  outout.open(name);
+	  
+	  globs->gnuindex++;
+	  mind=2;
+	  for(j=1;j<=ex->nMeasure;j++)
+	    {
+	      
+	      outout << ex->xMeasure[j] << "\t" << ex->yPred[j][l] << "\t" << ex->yMeasure[j][l] << endl;
+	      if(mesh[mind] <= ex->xMeasure[j])
+		{
+		  observation (globs,ex,mesh[mind],ex->yComp[mind],ys,ex->par,NULL,NULL);
+		  outout << mesh[mind] << "\t" << ys[l] << endl << endl;
+		  observation (globs,ex,mesh[mind],ex->yTry[mind],ys,ex->par,NULL,NULL);
+		  outout << mesh[mind] << "\t" << ys[l] << endl;
+		  mind++;
+		}
+	    }
+	  outout.flush();
+	  outout.close();
+	  for(long dd=1;dd<=1000000;dd++)
+	    1+1; 
+	}
+    }
+  
+  if (doDerivs) {
+    free_d3tensor(dTabdp,1,tableLen,1,nvar,1,globs->npar);
+    free_d3tensor(dTabds,1,tableLen,1,nvar,1,nvar);
+  }
+  free_dmatrix(yTab,1,tableLen,1,nvar);
+  free_dvector(xTab,1,tableLen);
+  free_dvector(ys,1,nvar);
+}
+

@@ -1,0 +1,28 @@
+<DOC>
+Lorenz Model
+</DOC>
+
+<PAR>
+sig	10	0
+r	46	0
+b	2.667	0
+</PAR>
+
+
+<VAR>
+X	5.7
+Y	10.5
+Z	30.5
+</VAR>
+
+<ODE>
+dXdt=sig*(Y-X)
+dYdt=-Y+X*(r-Z)
+dZdt=X*Y-b*Z
+</ODE>
+
+<OBS>
+X
+</OBS>
+
+

@@ -1,0 +1,115 @@
+I<NAME>
+PinskyRinzel2.model
+</NAME>
+
+<DOC>
+Implements Pinsky-Rinzel's Reduced Traub model, 2 compartments
+</DOC>
+
+# Name  Guess   Min     Max     comments
+<VAR>
+us	-4.6	-15.0	120.0   # somatic membrane potential
+h	0.999	0.0	1.0	# gating variable for us 
+n	0.001	0.0	1.0	# gating variable for us
+#h	0	0.0	1.0	# gating variable for us 
+#n	0	0.0	1.0	# gating variable for us
+ud	-4.5	-15.0	120.0   # dendritic membrane potential
+s	0.009	0.0	1.0	# gating variable for ud
+c	0.007	0.0	1.0	# gating variable for ud
+q	0.01	0.0	1.0	# gating variable
+Ca	0.2	0.0	1000.0	# Not a potential
+
+
+</VAR>
+
+#0.06666666666666668 0.13333333333333333
+#20.000000000000004 40.0
+#10.000000000000002 20.0
+#6.666666666666668 13.333333333333332
+#10.000000000000002 20.0
+#0.5333333333333334 1.0666666666666667
+
+# Name  Guess     Min     Max     comments
+<PAR>
+gL	0.1	0.067	0.13	# True value: 0.1
+gNa	30.0	20.0	40.0	# True value: 30
+gKDR	15.0	10.0	20.0	# True value: 15
+gCa	10.0	6.67	13.3	# True value: 10
+gKC	15.0	10.0	20.0	# True value: 15
+gKAHP	0.8	0.53	1.067	# True value: 0.8
+gc	1.85	1.85	1.85	# True value: 1.85
+Is	0.1	0.1	0.1	# True value: 0.1
+#
+#gL	0.1	0.1	0.1	# True value: 0.1
+#gNa	30	30	30	# True value: 30
+#gKDR	15	15	15	# True value: 15
+#gCa	10	10	10	# True value:
+#gKC	15	15	15	# True value:
+#gKAHP	0.8	0.8	0.8	# True value:
+#gc	10.5	10.5	10.5	# True value:
+#gc	8	1.0	50	# True value:
+</PAR>
+
+#
+/*
+<EMBED>
+
+double chi_func(double x) 
+{
+	double m=x/250.0;
+	return (m>1)? 1: m;
+}
+
+</EMBED>
+#
+<EMBEDGINAC>
+DECLARE_FUNCTION_1P(chi_func)
+static ex chi_func_deriv(const ex & x, unsigned diff_param)
+{
+	return (x>1)? 0: 0/250.0;
+}
+static ex chi_func_expl_deriv(const ex & arg, const symbol & s)
+{
+	return (s>1)? 0 : 1/250.0;
+}
+//REGISTER_FUNCTION(chi_func,derivative_func(chi_func_deriv))
+REGISTER_FUNCTION(chi_func,expl_derivative_func(chi_func_expl_deriv))
+</EMBEDGINAC>
+*/
+
+# ODEs for Pinsky-Rinzel
+<ODE>
+#p=0.5
+dusdt = (-gL*(us) -gNa*pow( (0.32 * (13.1 - us) / (exp((13.1 - us) / 4) - 1))/((0.32 * (13.1 - us) / (exp((13.1 - us) / 4) - 1)) + (0.28 * (us - 40.1) / (exp((us - 40.1) / 5) - 1))) , 2 )*h*(us-120) - gKDR*n*(us+15) + gc*(ud-us)/0.5 + Is/0.5)/3.0
+#Soma uncoupled to dendritic compartment
+#dusdt = (-gL*(us) -gNa*pow( (0.32 * (13.1 - us) / (exp((13.1 - us) / 4) - 1))/((0.32 * (13.1 - us) / (exp((13.1 - us) / 4) - 1)) + (0.28 * (us - 40.1) / (exp((us - 40.1) / 5) - 1))) , 2 )*h*(us-120) - gKDR*n*(us+15) + 0*(ud-us)/0.5 + 0.25/0.5)/3.0
+dhdt = (0.128 * exp((17 - us) / 18))*(1-h) - (4. / (1 + exp((40 - us) / 5)))*h
+dndt = (0.016 * (35.1 - us) / (exp((35.1 - us) / 5) - 1))*(1-n) - (0.25 * exp(0.5 - 0.025 * us))*n
+#Isyn=0, Id=0
+duddt = (-gL*(ud) -gCa*s*s*(ud-140) -gKAHP*q*(ud+15) -gKC*c*( (1-1/(1+exp(-(Ca-250))))*Ca/250.0+(1/(1+exp(-(Ca-250)))) )*(ud+15) +gc*(us-ud)/0.5)/3.0
+#Make sigmoid steeper
+#duddt = (-gL*(ud) -gCa*s*s*(ud-140) -gKAHP*q*(ud+15) -gKC*c*( (1-1/(1+exp(-2*(Ca-250))))*Ca/250.0+(1/(1+exp(-2*(Ca-250)))) )*(ud+15) +gc*(us-ud)/0.5)/3.0
+dsdt = (1.6/(1+exp(-0.072*(ud-65))))*(1-s) - (0.02*(ud-51.1)/(exp((ud-51.1)/5)-1))*s
+dcdt = ((1-1/(1+exp(-(ud-50))))*((exp((ud-10)/11-(ud-6.5)/27))/18.975)+(1/(1+exp(-(ud-50))))*(2*exp((6.5-ud)/27)))*(1-c) - (1-1/(1+exp(-(ud-50))))*(2*exp((6.5-ud)/27)-(exp((ud-10)/11-(ud-6.5)/27))/18.975)*c 
+dqdt = ((1-1/(1+exp(-(0.00002*Ca-0.01)/0.00002)))*(0.00002*Ca)+(1/(1+exp(-(0.00002*Ca-0.01)/0.00002)))*0.01)*(1-q) - (0.001)*q
+#
+dCadt=-0.13*gCa*s*s*(ud-140)-0.075*Ca
+</ODE>
+
+<OBS>
+us
+</OBS>
+
+<SSEQ>
+h=(0.128 * exp((17 - us) / 18))/((0.128 * exp((17 - us) / 18)) + (4. / (1 + exp((40 - us) / 5))))
+n=(0.016 * (35.1 - us) / (exp((35.1 - us) / 5) - 1))/((0.016 * (35.1 - us) / (exp((35.1 - us) / 5) - 1)) + (0.25 * exp(0.5 - 0.025 * us)))
+#
+ud=us - 0.5/gc*( -gL*(us) -gNa*pow( (0.32 * (13.1 - us) / (exp((13.1 - us) / 4) - 1))/((0.32 * (13.1 - us) / (exp((13.1 - us) / 4) - 1)) + (0.28 * (us - 40.1) / (exp((us - 40.1) / 5) - 1))) , 2 )*h*(us-120) - gKDR*n*(us+15) + 0.75/0.5)
+#
+s=(1.6/(1+exp(-0.072*(ud-65))))/( (1.6/(1+exp(-0.072*(ud-65)))) + (0.02*(ud-51.1)/(exp((ud-51.1)/5)-1)))
+c=((1-1/(1+exp(-(ud-50))))*((exp((ud-10)/11-(ud-6.5)/27))/18.975)+(1/(1+exp(-(ud-50))))*(2*exp((6.5-ud)/27)))/( ((1-1/(1+exp(-(ud-50))))*((exp((ud-10)/11-(ud-6.5)/27))/18.975)+(1/(1+exp(-(ud-50))))*(2*exp((6.5-ud)/27))) + (1-1/(1+exp(-(ud-50))))*(2*exp((6.5-ud)/27)-(exp((ud-10)/11-(ud-6.5)/27))/18.975) )
+#
+Ca=0.13*gCa*s*s*(ud-140)/(-0.075)
+q=((1-1/(1+exp(-(0.00002*Ca-0.01)/0.00002)))*(0.00002*Ca)+(1/(1+exp(-(0.00002*Ca-0.01)/0.00002)))*0.01)/( ((1-1/(1+exp(-(0.00002*Ca-0.01)/0.00002)))*(0.00002*Ca)+(1/(1+exp(-(0.00002*Ca-0.01)/0.00002)))*0.01) + (0.001))
+</SSEQ>
+

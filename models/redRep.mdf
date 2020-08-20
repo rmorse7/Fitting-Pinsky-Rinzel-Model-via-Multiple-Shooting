@@ -1,0 +1,26 @@
+<DOC>
+dlfb
+</DOC>
+
+<VAR>
+p00	1
+p01	0
+p10	0
+p11	0
+</VAR>
+
+<PAR>
+gam	40
+</PAR>
+
+<ODE>
+dp00dt=-(1+gam)*p00+p10-p00+p01
+dp10dt= (1+gam)*p00-p10-p10+p11
+dp01dt=-p01+p11+p00-p01
+dp11dt= p01-p11+p10-p11
+</ODE>
+
+<OBS>
+p00+p01
+p10+p11
+</OBS>

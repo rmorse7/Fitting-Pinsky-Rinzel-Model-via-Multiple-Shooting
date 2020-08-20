@@ -1,0 +1,65 @@
+
+<DOC>
+Ein Modell der Repeats mit CpG
+A->C    T->G    p1
+A->T    T->A    p2
+C->G    G->C    p3
+C->A    G->T    p4
+A->G    T->C    p5
+G->A    C->T    p6
+</DOC>
+
+<VAR>
+pM1	1.0
+pM2	0.0
+pM3	0.0
+pM4	0.0
+pL1	1.0
+pL2	0.0
+pL3	0.0
+pL4	0.0
+pR1	1.0
+pR2	0.0
+pR3	0.0
+pR4	0.0
+pCGL	0.0
+pCGR	0.0
+</VAR>
+
+<PAR>
+q01	1.0	0.0	
+q02	1.0	0.0	
+q03	1.0	0.0	
+q04	1.0	0.0	
+q05	1.0	0.0	
+q06	1.0	0.0	
+qQuer	1.0	0.0
+qCpG	40	0.0
+</PAR>
+
+<ODE>
+dpM1dt=-(q01+q05+q02)*pM1+(q04)*pM2+(q06)*pM3+(q02)*pM4+qCpG*pCGL
+dpM2dt= (q01)*pM1-(q04+q03+q06)*pM2+(q03)*pM3+(q05)*pM4-qCpG*pCGR
+dpM3dt= (q05)*pM1+(q03)*pM2-(q06+q03+q04)*pM3+(q01)*pM4-qCpG*pCGL
+dpM4dt= (q02)*pM1+(q06)*pM2+(q04)*pM3-(q02+q05+q01)*pM4+qCpG*pCGR
+
+dpL1dt=-(q01+q05+q02)*pL1+(q04)*pL2+(q06)*pL3+(q02)*pL4
+dpL2dt= (q01)*pL1-(q04+q03+q06)*pL2+(q03)*pL3+(q05)*pL4-qCpG*pCGL
+dpL3dt= (q05)*pL1+(q03)*pL2-(q06+q03+q04)*pL3+(q01)*pL4
+dpL4dt= (q02)*pL1+(q06)*pL2+(q04)*pL3-(q02+q05+q01)*pL4+qCpG*pCGL
+
+dpR1dt=-(q01+q05+q02)*pR1+(q04)*pR2+(q06)*pR3+(q02)*pR4+qCpG*pCGR
+dpR2dt= (q01)*pR1-(q04+q03+q06)*pR2+(q03)*pR3+(q05)*pR4
+dpR3dt= (q05)*pR1+(q03)*pR2-(q06+q03+q04)*pR3+(q01)*pR4-qCpG*pCGR
+dpR4dt= (q02)*pR1+(q06)*pR2+(q04)*pR3-(q02+q05+q01)*pR4
+
+dpCGLdt=-2*(qCpG+4*qQuer+q05+q06-q01-q05)*pCGL+qQuer*(pM3+pL2)
+dpCGRdt=-2*(qCpG+4*qQuer+q05+q06-q01-q05)*pCGR+qQuer*(pM2+pL3)
+</ODE>
+
+<OBS>
+pM1
+pM2
+pM3
+pM4
+</OBS>

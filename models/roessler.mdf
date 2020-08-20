@@ -1,0 +1,21 @@
+<DOC>
+GOOD OLD ROESSLER
+</DOC>
+
+<VAR>
+xx	0
+yy	1
+zz	0
+</VAR>
+
+<PAR>
+a	0.2
+b	0.2
+cc	6.3
+</PAR>
+
+<ODE>
+dxxdt=-yy-zz
+dyydt=xx+a*yy
+dzzdt=b+(xx-cc)*zz
+</ODE>

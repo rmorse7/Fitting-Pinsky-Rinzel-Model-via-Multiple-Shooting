@@ -1,0 +1,15 @@
+[Compiling] model.cc ...done.
+[Linking] diffit ...done.
+[Linking] simit ...done.
+[Creating Mexfile] diffit_mexBuilding with 'g++'.
+Warning: You are using gcc version '7.4.0'. The version of gcc is not supported. The version currently supported with MEX is '6.3.x'. For a list of currently supported compilers see: https://www.mathworks.com/support/compilers/current_release.
+MEX completed successfully.
+ ...done.
+[Creating Mexfile] simit_mexBuilding with 'g++'.
+Warning: You are using gcc version '7.4.0'. The version of gcc is not supported. The version currently supported with MEX is '6.3.x'. For a list of currently supported compilers see: https://www.mathworks.com/support/compilers/current_release.
+MEX completed successfully.
+ ...done.
+[Creating Mexfile] createSpline_mexBuilding with 'g++'.
+Warning: You are using gcc version '7.4.0'. The version of gcc is not supported. The version currently supported with MEX is '6.3.x'. For a list of currently supported compilers see: https://www.mathworks.com/support/compilers/current_release.
+MEX completed successfully.
+ ...done.

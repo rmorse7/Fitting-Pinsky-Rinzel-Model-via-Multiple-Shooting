@@ -1,0 +1,43 @@
+Installation Guide for Diffit 2.2
+---------------------------------
+
+Diffit depends on the following libraries:
+
+ (*) blas2	(*) f2c
+
+make sure that these are installed. Furthermore,
+it is necessary having a C/C++ and a FORTRAN 77
+compiler installed. If these compilers and libraries 
+differ from the linux/unix GNU compilers and lib's
+the variables CCC, f77, LIBS has to be changed 
+in the makefile. 
+
+The script model2diffit, allowing a comfortable
+model implementation, requires in addition:
+
+ (*) python	(*) libginac and libginac-dev.
+
+
+Installation
+------------
+
+Step 1:	Extract the source by executing
+		tar xvzf diffit.tgz 
+	This generated the directory diffit, where
+	the source code for the program is located.
+
+Step 2: Change to ./diffit/modules and create 
+	symbolic links by executing
+	   	ln -s ../generic_modules/*.cc .
+
+Step 3: If you are intending to use the 
+	model2diffit script you have to set
+	DIFFIT variable
+		export DIFFIT=path_to_diffit/diffit
+	You can also add this variable into ~/.bashrc
+
+Compilation/Example
+-------------------
+
+
+	

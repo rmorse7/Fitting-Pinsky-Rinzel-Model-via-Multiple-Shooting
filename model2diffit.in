@@ -1,0 +1,736 @@
+#! /usr/bin/python
+# 
+"""model2difft - creates a cc file from a mdf file
+              and compiles & links it to diffit
+              author: Florian Geier
+
+
+usage:        model2diffit <file.mdf> [<file.cc>]
+
+options:      --no  compiling & linking off
+              -h    shows mdf example"""
+
+MODEL_DOC = """
+#------------------- MDF file structure -------------------#
+
+MDF files use a simple xml like syntax: <TAG> code </TAG>.
+In order to work you have to declare variables, parameter
+and ode's of your model. Comments are specified by '#' and are
+ignored. The following tags are recognized:
+
+<DOC>
+model definition file for JakStat5   # for model documentation
+</DOC>
+
+Variable declaration and initialization is done by giving
+an appropriate name, an initial value ('Guess') and maximum
+and minimum values. You might use -y0 to overwrite the inital
+value later when you call diffit. 'Min' and 'max' are fitting
+constraints on the initial value. They can be omitted with a '-'
+sign.
+
+# Name	Guess	Min	Max	comments
+<VAR>
+stat3	1	0	10 
+tpstat3	0	0 	10
+dimer   0       0       -
+kern    0       0       10
+</VAR>
+
+Observation functions. The function order reflects the
+order of the observations in the data file. If no observation
+function is given, diffit assumes ALL variables are observed.
+In order to restrict this to certain variables you must specify
+them directly (as e.g. the first observation in the example below).
+
+<OBS>
+stat3                  # first observation         
+par3*(tpstat3+stat3)   # second observation
+</OBS>
+
+Parameter declaration and initialization is similar to the variable
+declaration.
+
+# name	guess	min	max	comments
+<PAR>
+k1	.021	0	-	# stat3 degradation rate
+k2	2.46	0	-	 
+k3	.1066	0	-	 
+k4	.1066	0	-	 
+k5	7	0	-	
+</PAR>
+
+The ODE declaration uses the following syntax: <LHS>=<RHS>. The
+left hand side (LHS) is given by dVARIABLE_NAMEdt where
+VARIABLE_NAME is one of the variables declared above. Internally
+variables names are mapped to array indices, e.g. stat3 -> y[2].
+The order of ODEs specifies the index and with it the index in the
+jacobian matrix (automatically generated using GiNaC).
+
+<ODE>
+dstat3dt   = -k1*stat3*spline1 + 2*k4*kern
+dtpstat3dt = -k2*pow(tpstat3,2) + k1*stat3*spline1
+ddimerdt   = .5*k2*pow(tpstat3,2) - k3*dimer
+dkerndt    = k3*dimer - k4*kern
+</ODE>
+
+Function declarations may contain standart mathematical functions as
+declared in C's math library, e.g. sin(), tan() or pow(). Thus, you
+must follow C-code style. You can also use splines in your function
+declarations. The syntax is: spline1, spline2 ... Later diffit is
+called with the spline option: -spline file1.dat file2.dat
+"""
+
+import sys, os, re, getopt
+
+# mdf tag definitions
+DOC_TAG = '<DOC>\n([\w\W]*)\n</DOC>'
+VAR_TAG = '<VAR>\n([\w\W]*)</VAR>'
+DELAYVAR_TAG = '<DELAYVAR>\n([\w\W]*)</DELAYVAR>' # for odin
+OBS_TAG = '<OBS>\n([\w\W]*)</OBS>'
+PAR_TAG = '<PAR>\n([\w\W]*)</PAR>'
+DELAYPAR_TAG = '<DELAYPAR>\n([\w\W]*)</DELAYPAR>' # for odin
+ODE_TAG = '<ODE>\n([\w\W]*)</ODE>'
+CODE_TAG = '<CODE>\n([\w\W]*)</CODE>' # for odin
+# variables and parameter pattern
+PAR_PATTERN = '([\w]+)[\s]+([\d\.\-\/\*\+e]+)[\s]*([\d\.\-\/\*\+e]*)[\s]*([\d\.\-\/\*\+e]*)'
+ODE_PATTERN = '(d[\w_]+dt)\s*=\s*([\w\W]+)'
+DERIV_PATTERN = 'd([\w_]+)dt'
+OBSFUNC_PATTERN = '([\w\W]+)'
+SPLINE_PATTERN = '(spline[\d]+)'
+
+# default values
+PAR_DEFAULT_INIT_VALUE = 1.0
+VAR_DEFAULT_INIT_VALUE = 1.0
+
+# cc file strings
+CCFILE_HEAD = "#include <math.h>\n#include <stdlib.h>\n#include <fstream>\n#include <iostream>\n#include <string.h>\n\n#include \"nr.h\"\n#include \"def.h\"\n\nusing namespace std;"
+CCFILE_SPLINE = """//Spline data\ndouble **splineNodes;\ndouble **splineY;\ndouble **splineGam;\nunsigned long *nNodes;\n\n"""
+CCFILE_GENERIC_OBS = """int observation (Glob *globs,GlobExp *ex,double t, double *y, double *gy,double *p, double **dgdy,double **dgdp)\n{\n  int generic=TRUE; // generic obsevation function\n  long k;\n\n  for(k=1;k<=ex->nobs;k++)\n    gy[k]=y[k];\n\n  return(generic);\n}"""
+CCFILE_BOTTOM = """void initInt(Glob *globs,GlobExp *ex)\n{\n splineNodes=ex->splineNodes;\n splineY=ex->splineY;\n splineGam=ex->splineGam;\n nNodes=ex->nNodes;\n}\n\n/* set ex->r2[1..data->me]; (equal. constr., components must be == 0) */\nvoid R2(Glob *globs,GlobExp *ex,int computeDerivs)\n{\n\n}\n"""
+CCFILE_VERY_BOTTOM = """\nvoid inhomo(double t, double *y, double **inh, double *p)\n{\n  int jp=1;\n\n  for (int jp=1; jp<=NPARAMS; jp++)\n      inhomo1(t,y,inh[jp],p,jp);\n}\n"""
+CCFILE_DOCUMENTATION = """extern const char *DefModelDescription = \n\""""
+JACOBI_OPEN_P = "void jacobi(double t, double *y, double **jac, double *p) {\\n"
+JACOBI_CLOSE_P = "\\n} // automatically generated elements"
+INHOMO1_OPEN_P = "void inhomo1(double t, double *y, double *inh1, double *p, int &jp)\\n{\\n"
+INHOMO1_CLOSE_P = "} // automatically generated elements"
+GINAC_HEAD = """#include<iostream>\n#include<ginac/ginac.h>\nusing namespace std;\nusing namespace GiNaC;\nmain()\n{\n"""
+
+# output
+OUT = sys.stdout = sys.stderr
+
+# location for temporary files
+TMP_PATH = '/tmp'
+
+# compiling & linking flag
+NO_FLAG = None
+
+# global script variables
+doc = ''
+equations = {}
+equations_order = []
+obsfunc = {}
+obsfunc_order = []
+variables = {}
+delay_variables = []
+variables_order = []
+parameter = {}
+parameter_order = [] # important for setting the correct local parameter order with -p 1,0...
+delay_parameter = []
+splines = []
+code_str = ''
+model_name = ''
+
+#-----------------------------------------------
+def removeComment(line):
+    line = line.split('#')
+    return line[0].strip()
+#-----------------------------------------------
+def do_not_use(list):
+    EGGS = ['p','y','f']
+    for s in list:
+        if s in EGGS:
+            return s
+    return None
+#-----------------------------------------------
+def parse(str):
+    global doc, equations, equations_order, obsfunc, obsfunc_order, variables, delay_variables, variables_order, parameter, parameter_order, delay_parameter, splines, code_str, model_name
+    
+    #Get documentation
+    DOC_P = re.compile(DOC_TAG)
+    match = re.search(DOC_P, str)
+    try:
+        doc = match.group(1)
+    except:
+        pass
+
+    #Get equations
+    ODE_TAG_P = re.compile(ODE_TAG)    
+    match = re.search(ODE_TAG_P, str)
+    try:
+        equations_str = match.group(1)
+    except:
+        print >> OUT , "\nERROR: No equations found"
+        sys.exit()
+    if equations_str:
+        DERIV_P = re.compile(DERIV_PATTERN)
+        ODE_P = re.compile(ODE_PATTERN)
+        SPLINE_P = re.compile(SPLINE_PATTERN)
+        for eqn in equations_str.split('\n'):
+            eqn = removeComment(eqn)
+            if eqn:
+                eqn_match = re.search(ODE_P, eqn)
+                try:
+                    lhs = eqn_match.group(1)
+                    rhs = eqn_match.group(2)
+                except:
+                    print >> OUT , "\nERROR: Can't parse equation: '%s'"%eqn
+                    sys.exit()
+                equations[lhs] = rhs
+                deriv_match = re.search(DERIV_P, lhs)
+                try:
+                    lhs_var = deriv_match.group(1)
+                except:
+                    print >> OUT , "\nERROR: Can't parse derivative: '%s'"%lhs
+                    sys.exit()
+                equations_order.append(lhs_var)
+                spline_match = re.findall(SPLINE_P, ' '+rhs)
+                if spline_match:
+                    for s in spline_match:
+                        splines.append(s)
+                    for s in splines:
+                        while splines.count(s) > 1:
+                            splines.remove(s)
+                            
+    #Get observation functions
+    OBS_TAG_P = re.compile(OBS_TAG)
+    OBS_P = re.compile(OBSFUNC_PATTERN)
+    match = re.search(OBS_TAG_P, str)
+    try:
+        observations_str = match.group(1)
+    except:
+        # no observation function -> variables are directly observed
+        observations_str = None
+    if observations_str:
+        obsfn = 0
+        for obs in observations_str.split('\n'):
+            obs = removeComment(obs)
+            if obs:
+                obs_match = re.search(OBS_P, obs)
+                try:
+                    rhs = obs_match.group(1)
+                except:
+                    print >> OUT , "\nERROR: Can't parse observation function: '%s'"%obs
+                    sys.exit()
+                obsfn += 1
+                obsfunc['obsf%s'%obsfn] = rhs
+                obsfunc_order.append('obsf%s'%obsfn)
+
+    # test
+    spam = do_not_use(obsfunc_order)
+    if spam:
+        print "Error: Don't use '%s' as observation name"%spam
+        sys.exit()
+        
+    #Get variables
+    VAR_P = re.compile(VAR_TAG)
+    match = re.search(VAR_P, str)
+    try:
+        var_str = match.group(1)
+    except:
+        print >> OUT , "\nERROR: No variables found"
+        sys.exit()
+    if var_str:
+        VAR_P = re.compile(PAR_PATTERN) # same as parameter pattern
+        for var in var_str.split('\n'):
+            var = removeComment(var)
+            match = re.search(VAR_P, var)
+            try:
+                name = match.group(1)
+            except:
+                name = None
+            try:
+                value = match.group(2)
+            except:
+                value = VAR_DEFAULT_INIT_VALUE
+            try:
+                min = match.group(3)
+            except:
+                min = ''
+            try:
+                max = match.group(4)
+            except:
+                max = ''
+            if min == '-':
+                min = ''
+            if max == '-':
+                max = ''
+            if name:
+                variables[name] = (value, min, max)
+
+    variables_order = []
+    for dydt in equations_order: # take care of variable order
+        if dydt in variables.keys():
+            variables_order.append(dydt)
+
+    # test
+    spam = do_not_use(variables_order)
+    if spam:
+        print "Error: Don't use '%s' as variable name"%spam
+        sys.exit()
+
+    #Get parameter
+    PAR_P = re.compile(PAR_TAG)
+    match = re.search(PAR_P, str)
+    try:
+        par_str = match.group(1)
+    except:
+        print >> OUT , "\nERROR: No parameter found"
+        sys.exit()
+    if par_str:
+        PAR_P = re.compile(PAR_PATTERN)
+        for par in par_str.split('\n'):
+            par = removeComment(par)
+            match = re.search(PAR_P, par)
+            try:
+                name = match.group(1)
+            except:
+                name = None
+            try:
+                value = match.group(2)
+            except:
+                value = PAR_DEFAULT_INIT_VALUE
+            try:
+                min = match.group(3)
+            except:
+                min = ''
+            try:
+                max = match.group(4)
+            except:
+                max = ''
+            if min == '-':
+                min = ''
+            if max == '-':
+                max = ''
+            if name:
+                parameter_order.append(name)
+                parameter[name] = (value, min, max)
+
+    # test
+    spam = do_not_use(parameter_order)
+    if spam:
+        print "Error: Don't use '%s' as parameter name"%spam
+        sys.exit()
+#-----------------------------------------------
+def validate():
+    var_test = [var for var in variables.keys() if not var in equations_order]
+    if len(var_test) > 0:
+        print >> OUT , "\nERROR: More variables than equations:\n%s"%var_test
+        sys.exit()
+#-----------------------------------------------
+def createCCFile(outfile):    
+    variables_k = variables.keys()
+    parameter_k = parameter_order
+    equations_k = equations.keys()
+    equations_k.sort()
+    
+    if obsfunc_order:
+        NOBS = len(obsfunc_order)
+    else:
+        NOBS = len(variables_k)
+
+    print >> outfile, CCFILE_HEAD+'\n'
+
+    #Documentation -> text structure is lost
+    d=''
+    for line in doc.splitlines():
+        d += line+';'
+    print >> outfile, "extern const char *DefModelDescription = \n\"%s\";\n" %d[:-1]
+
+    print >> outfile, "extern const int NEQNS   = %s;" %len(equations_k)
+    print >> outfile, "extern const int NOBS    = %s;" %NOBS
+    print >> outfile, "extern const int NPARAMS = %s;" %len(parameter_k)
+    print >> outfile, "extern const int NSPLINES  = %s;\n" %len(splines)
+
+    print >> outfile, CCFILE_SPLINE
+        
+    #DECLARE
+    eggs = 1
+    for deriv in equations_order:
+        print >> outfile, "const int\ti%s\t=%s;"%(deriv,eggs)
+        eggs += 1
+
+    ###DEFINE
+    #ODEs: left hand side
+    eggs = 1
+    for deriv in equations_order:
+        print >> outfile, "#define d%sdt\tf[%s]" %(deriv,eggs)
+        eggs += 1
+    # variables: keep order of derivatives
+    eggs = 1
+    for var in variables_order:
+        print >> outfile, "#define %s\ty[%s]" %(var,eggs)
+        eggs += 1
+    # parameter
+    spam = 1
+    for p in parameter_k:
+        print >> outfile, "#define %s\tp[%s]" %(p,spam)
+        spam += 1
+    #splines
+    spam = 1
+    for s in splines:
+        print >> outfile, "#define %s\tspline(splineNodes[%s],splineY[%s],splineGam[%s],nNodes[%s],t)" %(s,spam,spam,spam,spam)
+        spam += 1
+    print >> outfile, '\n'      
+
+    #Parameter values
+    v=''
+    for p in parameter_k:
+        v += parameter[p][0]+','
+    print >> outfile, "extern const double DefParameters[] = {%s};" %v[:-1]
+
+    #Variable values: keep oder of derivatives
+    v=''
+    for var in variables_order:
+        v += variables[var][0]+','
+    print >> outfile, "extern const double DefYValues[]    = {%s};" %v[:-1]
+
+    #Variable names
+    str=''
+    for var in variables_order:
+        str += "\"%s\","%var
+    print >> outfile, "extern const string VariableNames[] = {%s};" %str[:-1]
+
+    #Parameter names
+    str=''
+    for p in parameter_k:
+        str += "\"%s\","%p
+    print >> outfile, "extern const string ParameterNames[] = {%s};\n" %str[:-1]
+    
+    #ODEs
+    print >> outfile, "void ode(double t, double *y, double *f, double *p)\n{"
+    for deriv in equations_order:
+        print >> outfile, "  d%sdt=%s;" %(deriv, equations["d%sdt"%deriv])
+    print >> outfile, "} // ode\n"
+    
+    # parameter constrains
+    special_eggs = 0
+    special_spam = 1
+    print >> outfile, "/* set ex->r3[1..data->mg]; (ineq. constr., components must be >= 0) */"
+    print >> outfile, "void R3(Glob *globs, GlobExp *ex, int computeDerivs)\n{\n  long i,j;"
+    print >> outfile, "  // parameter constraints"
+    for p in parameter_k:
+        init, min, max = parameter[p]
+        print >> outfile, "  // parameter: %s"%p
+        if min:
+            special_eggs += 1 # counter pro constraint
+
+            print >> outfile, "  ex->r3[%s]=ex->par[%s]-(%s);"%(special_eggs, special_spam, min)
+            print >> outfile, "  if(computeDerivs) {"
+            print >> outfile, "    for (i=1;i<=globs->npar;i++) {"
+            print >> outfile, "      if (i == %s)" %special_spam
+            print >> outfile, "        ex->dR3dp[%s][i]=1.0;\n     }" %special_eggs
+
+            print >> outfile, "  }"
+        if max:
+            special_eggs += 1
+            print >> outfile, "  ex->r3[%s]=-ex->par[%s]+(%s);"%(special_eggs, special_spam, max)
+            print >> outfile, "  if(computeDerivs) {"
+            print >> outfile, "    for (i=1;i<=globs->npar;i++) {"
+            print >> outfile, "      if (i == %s)" %special_spam
+            print >> outfile, "        ex->dR3dp[%s][i]=-1.0;\n    }" %special_eggs
+            print >> outfile, "  }"
+        special_spam += 1 # counter pro parameter
+
+    # variable constrains
+    special_spam = 1 # counter pro variable
+    print >> outfile, "  // variable constraints"
+    for v in variables_order:
+        init, min, max = variables[v]
+        print >> outfile, "  // variable: %s"%v
+        if min:
+            special_eggs += 1
+            print >> outfile, "  ex->r3[%s]=ex->yTry[1][%s]-(%s);"%(special_eggs, special_spam, min)
+            print >> outfile, "  if(computeDerivs) {"
+            print >> outfile, "    for (i=1;i<=ex->nvar;i++) {"
+            print >> outfile, "      if (i == %s)" %special_spam
+            print >> outfile, "        ex->dR3ds[%s][1][i]=1.0;\n     }" %special_eggs
+
+            print >> outfile, "  }"
+        if max:
+            special_eggs += 1
+            print >> outfile, "  ex->r3[%s]=-ex->yTry[1][%s]+(%s);"%(special_eggs, special_spam, max)
+            print >> outfile, "  if(computeDerivs) {"
+            print >> outfile, "    for (i=1;i<=ex->nvar;i++) {"
+            print >> outfile, "      if (i == %s)" %special_spam
+            print >> outfile, "        ex->dR3ds[%s][1][i]=-1.0;\n    }" %special_eggs
+            print >> outfile, "  }"
+        special_spam += 1
+#     if MS_TAG:
+#         print >> outfile, "  // multiple shooting constraints"
+#         for v in variables_order:
+#             init, min, max = variable[v]
+#             print >> outfile, " for (long s=1;s<=ex->;i++) {"
+#             if min:
+#                 special_eggs += 1
+                
+#                 print >> outfile, "  ex->r3[%s]=ex->yTry[1][%s]-(%s);"%(special_eggs, special_spam, min)
+#                 print >> outfile, "  if(computeDerivs) {"
+#                 print >> outfile, "    for (i=1;i<=ex->nvar;i++) {"
+#                 print >> outfile, "      if (i == %s)" %special_spam
+#                 print >> outfile, "        ex->dR3ds[%s][1][i]=1.0;\n     }" %special_eggs
+
+#                 print >> outfile, "  }"
+#             if max:
+#                 special_eggs += 1
+#                 print >> outfile, "  ex->r3[%s]=-ex->yTry[1][%s]+(%s);"%(special_eggs, special_spam, max)
+#                 print >> outfile, "  if(computeDerivs) {"
+#                 print >> outfile, "    for (i=1;i<=ex->nvar;i++) {"
+#                 print >> outfile, "      if (i == %s)" %special_spam
+#                 print >> outfile, "        ex->dR3ds[%s][1][i]=-1.0;\n    }" %special_eggs
+#                 print >> outfile, "  }"
+#             special_spam += 1
+
+    print >> outfile, "}"
+
+    print >> outfile, "void setNrConstraints(GlobExp *ex, int nP, double *parameters)\n{"
+    print >> outfile, "  ex->me=0; ex->mg=%s;\n}" %special_eggs
+
+    if obsfunc:
+        pipe = ginacObs()
+        print >> outfile, """int observation (Glob *globs,GlobExp *ex,double t, double *y, double *gy,double *p, double **dgdy,double **dgdp)\n{\n  int generic=FALSE; // user defined observation function\n  long k;"""
+        i = 1
+        for obs in obsfunc_order:
+            print >> outfile, "  gy[%s]=%s;"%(i, obsfunc[obs])
+            i += 1
+        print >> outfile, "  "+pipe
+        print >> outfile, """  return(generic);\n}"""
+    else:
+        print >> outfile, CCFILE_GENERIC_OBS
+
+    print >> outfile, CCFILE_BOTTOM
+
+    # Ginacdiff
+    pipe = ginacEqn()
+    outfile.write(pipe)
+
+
+    print >> outfile, CCFILE_VERY_BOTTOM
+
+#---- ginac: jacobian and sensitivities ---#
+def ginacEqn():
+    OUT.write('.')
+    tmp_name = os.path.join(TMP_PATH,'tmp.cc')
+
+    try:
+        TMP_OUT = open(tmp_name,'w')
+    except:
+        print >> sys.stdout, "\nERROR: Can't write ginacdiff tmp file to %s"%os.getcwd()
+        
+    parameter_k = parameter_order
+    
+    print >> TMP_OUT, GINAC_HEAD
+    print >> TMP_OUT, "  symbol t(\"t\");" # haha
+    for var in variables_order:
+        print >> TMP_OUT, "  symbol %s(\"%s\");" %(var,var)
+    for p in parameter_k:
+        print >> TMP_OUT, "  symbol %s(\"%s\");" %(p,p)
+    for s in splines:
+        print >> TMP_OUT, "  symbol %s(\"%s\");" %(s,s)
+    for deriv in equations_order:
+        print >> TMP_OUT, "  ex d%sdt=%s;" %(deriv, equations["d%sdt"%deriv])
+    print >> TMP_OUT, '\n'
+    print >> TMP_OUT, "  cout << \"%s\";"%JACOBI_OPEN_P
+
+    for deriv in equations_order:
+        for var in variables_order:
+            print >> TMP_OUT, "  cout << \"  jac[i%s][i%s]=\";" %(var, deriv)
+            print >> TMP_OUT, "  d%sdt.diff(%s).print(print_csrc(cout));" %(deriv, var)
+            print >> TMP_OUT, "  cout << \";\" << endl;"
+    print >> TMP_OUT, "  cout << \"%s\";" %JACOBI_CLOSE_P 
+    print >> TMP_OUT, "  cout << endl << endl;"
+    print >> TMP_OUT, "  cout << \"%s\";" %INHOMO1_OPEN_P
+    
+    eggs = 1
+    for par in parameter_k:
+        print >> TMP_OUT, "  cout << \"if(jp==%s){\\n\";" %eggs
+        for deriv in equations_order:
+            print >> TMP_OUT, "  cout << \"   inh1[i%s]=\";" %deriv
+            print >> TMP_OUT, "  d%sdt.diff(%s).print(print_csrc(cout));" %(deriv, par)
+            print >> TMP_OUT, "  cout << \";\" << endl;"
+        eggs += 1
+        print >> TMP_OUT, "  cout << \"}\\n\";"
+    print >> TMP_OUT, "  cout << \"%s\";" %INHOMO1_CLOSE_P
+    print >> TMP_OUT, '}'
+
+    TMP_OUT.close()
+
+    # compile tmp.cc
+    os.system('g++ %s -o %s -lcln -lginac'%(tmp_name,os.path.join(TMP_PATH,'tmp')))
+    pipe = os.popen(os.path.join(TMP_PATH,'tmp')).read()
+    os.system('rm %s %s'%(tmp_name, os.path.join(TMP_PATH,'tmp')))
+    
+    return pipe
+#-----------------------------------------------
+# jacobian and inhomo of observation functions
+def ginacObs():
+    OUT.write('.')
+    tmp_name = os.path.join(TMP_PATH,'tmp2.cc')
+
+    try:
+        TMP_OUT = open(tmp_name,'w')
+    except:
+        print >> sys.stdout, "\nERROR: Can't write ginacdiff tmp2 file to %s"%os.getcwd()
+    
+    parameter_k = parameter_order
+    
+    print >> TMP_OUT, GINAC_HEAD
+    print >> TMP_OUT, "  symbol t(\"t\");" # haha
+    for v in variables_order:
+        print >> TMP_OUT, "  symbol %s(\"%s\");" %(v,v)
+    for p in parameter_k:
+        print >> TMP_OUT, "  symbol %s(\"%s\");" %(p,p)
+    for s in splines:
+        print >> TMP_OUT, "  symbol %s(\"%s\");" %(s,s)
+    for lhs, rhs in obsfunc.items():
+        print >> TMP_OUT, "  ex %s=%s;" %(lhs, rhs)
+    
+    print >> TMP_OUT, "  cout << \"%s\";"%"\\n  if(dgdy) {\\n"
+    i = 1
+    for obs in obsfunc_order:
+        v = 1
+        for var in variables_order:
+            print >> TMP_OUT, "  cout << \"    dgdy[%s][%s]=\";" %(i,v)
+            print >> TMP_OUT, "  %s.diff(%s).print(print_csrc(cout));" %(obs, var)
+            print >> TMP_OUT, "  cout << \";\" << endl;"
+            v += 1
+        i += 1
+    print >> TMP_OUT, "  cout << \"  }\\n\";"
+    print >> TMP_OUT, "  cout << \"%s\";"%"\\n  if(dgdp) {\\n"
+    i = 1; 
+    for obs in obsfunc_order:
+        p = 1
+        for par in parameter_k:
+            print >> TMP_OUT, "  cout << \"     dgdp[%s][%s]=\";" %(i, p)
+            print >> TMP_OUT, "  %s.diff(%s).print(print_csrc(cout));" %(obs, par)
+            print >> TMP_OUT, "  cout << \";\" << endl;"
+            p += 1
+        i += 1
+    print >> TMP_OUT, "  cout << \"  }\\n\";"
+   
+    print >> TMP_OUT, '}'
+
+    TMP_OUT.close()
+
+    # compile tmp.cc
+    os.system('g++ %s -o %s -lcln -lginac'%(tmp_name,os.path.join(TMP_PATH,'tmp2')))
+    pipe = os.popen(os.path.join(TMP_PATH,'tmp2')).read()
+    os.system('rm %s %s'%(tmp_name, os.path.join(TMP_PATH,'tmp2')))
+    
+    return pipe
+
+#--------------------------------------------------------------------------
+# skripting
+#--------------------------------------------------------------------------
+if __name__ == '__main__':
+    
+    DIFFIT_PATH ='@abs_builddir@'
+    #os.getenv('DIFFIT')
+    if not DIFFIT_PATH:
+        print >> OUT, "\nERROR: Please specify environment variable DIFFIT,\ne.g. run in bash 'export DIFFIT=/my/path/to/diffit/binaries'"
+        sys.exit()
+
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], 'h', ['no','help'])
+    except getopt.error, msg:
+        sys.stdout = sys.stderr
+        print msg
+        sys.exit()
+        
+    for opt, arg in opts:
+        if opt == '-h' or opt == '--help':
+            print __doc__
+            print MODEL_DOC
+            sys.exit()
+            
+        if opt == '--no':
+            NO_FLAG = True
+
+    # no input file ?
+    if len(args)==0:
+        print __doc__
+        sys.exit()
+    
+    #open model file
+    try:
+        infile = open(args[0],'r')
+    except:
+        print >> OUT, "\nERROR: Can't read model file %s"%args[0]
+        sys.exit()
+
+    infile_name = infile.name
+    str = infile.read()
+    infile.close()
+    
+    # test for outfile
+    try:
+        outfile_name = os.path.abspath(args[1])
+    except:
+        # name = infile name + .cc extension
+        head, tail = os.path.split(infile_name)
+        name, ext = os.path.splitext(tail)
+        outfile_name = name+'.cc'
+
+    # outfile path
+    out_path, tail = os.path.split(outfile_name)
+    if not out_path:
+        out_path = os.getcwd()
+
+    # open out file
+    out = os.path.join(out_path, outfile_name)
+    try:
+        outfile = open(out,'w')
+    except IOError:
+        print >> OUT, "\nERROR: Can't open output file in %s"%out
+        sys.exit()
+
+    # parse infile
+    OUT.write('.')
+    struc = parse(str)
+    
+    #validate
+    validate()
+    
+    # create outfile
+    OUT.write('.')
+    createCCFile(outfile)
+    outfile.close()
+
+    if not NO_FLAG:
+        # link model.cc to outfile
+        OUT.write('.')
+        path = os.path.join(DIFFIT_PATH,'model.cc')
+        if os.path.islink(path):
+            os.remove(path)
+        try:
+            os.symlink(out, path)
+        except OSError, msg:
+            print msg
+            print >> OUT , "\nERROR: Can't create link: %s -> %s" %(path, out)
+            sys.exit()
+        
+        # call make
+        OUT.write('.')
+        eggs = os.getcwd()
+        if eggs is not DIFFIT_PATH:
+            os.chdir(DIFFIT_PATH)
+            sig = os.system('make > model2diffit.dbg')
+            os.chdir(eggs)
+        else:
+            sig = os.system('make > model2diffit.dbg')
+        if not sig == 0:
+            print "\nERROR: Can't 'make' diffit"
+            sys.exit()
+    
+    OUT.write(' done!\n')
+

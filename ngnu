@@ -1,0 +1,323 @@
+modules/call_odessa.cc:  long nPExp=globs->npar;
+modules/call_odessa.cc:              //  observation (globs,ex,TOUT, y[k], globs->par, dgdy, dgdp);
+modules/computeRight.cc:    long nP=globs->npar;
+modules/dampIt.cc:  for (iexp=1;iexp<=globs->nrExp;++iexp)
+modules/dampIt.cc:      for (ip=1;ip<=globs->npar; ++ip)
+modules/dampIt.cc:	  if(globs->doP[ip]=='L')
+modules/dampIt.cc:    } // end of: for (iexp=1;iexp<=globs->nrExp;++iexp)
+modules/dampIt.cc:  for (ip=1;ip<=globs->npar; ++ip)
+modules/dampIt.cc:      if(globs->doP[ip]==TRUE)
+modules/dampIt.cc:  long nP=globs->npar;
+modules/dampIt.cc:  for (i=1;i<=globs->nrExp;++i) 
+modules/dampIt.cc:  double **newdP=dmatrix(1,globs->nrExp,1,nP);                      // parameter updates
+modules/dampIt.cc:  double ***newdS=d3tensor(1,globs->nrExp,1,maxPoints,1,maxVar); // yTry updates
+modules/dampIt.cc:  for(iexp=1;iexp<=globs->nrExp;iexp++) 
+modules/dampIt.cc:  globs->chisq=0.;
+modules/dampIt.cc:  for (iexp=1;iexp<=globs->nrExp;iexp++) 
+modules/dampIt.cc:      globs->chisq+=computeRight(globs,&ex[iexp]);
+modules/dampIt.cc:  *dbg  <<"subtotal chisq=" << globs->chisq << endl;
+modules/dampIt.cc:  for (iexp=1;iexp<=globs->nrExp;iexp++) 
+modules/dampIt.cc:  for (iexp=1;iexp<=globs->nrExp;++iexp) 
+modules/dampIt.cc:	  if(globs->doP[i]=='L')
+modules/dampIt.cc:      if(globs->doP[i]==TRUE)
+modules/dampIt.cc:  free_d3tensor(newdS,1,globs->nrExp,1,maxPoints,1,maxVar);
+modules/dampIt.cc:  free_dmatrix(newdP,1,globs->nrExp,1,nP);
+modules/dampIt.cc:  if(globs->wquer<0)
+modules/dampIt.cc:      globs->wquer=1.*eta0/normdx;
+modules/dampIt.cc:    t=eta0/(globs->wquer*normdx);
+modules/dampIt.cc:  globs->wquer=subIt(globs, ex, t,normdx,P0, S0, dP, dS,*uS);
+modules/dampIt.cc:  if(globs->silent!=TRUE)
+modules/dampIt.cc:      cout << "chisq=" << globs->chisq;
+modules/dampIt.cc:  etaOk=((globs->wquer*t*normdx)<eta2);
+modules/dampIt.cc:      t=eta0/(normdx*globs->wquer);
+modules/dampIt.cc:	      if(globs->silent!=TRUE)
+modules/dampIt.cc:      globs->wquer=subIt(globs, ex, t, normdx,P0, S0, dP, dS,*uS);
+modules/dampIt.cc:      if(globs->silent!=TRUE)
+modules/dampIt.cc:	  cout << "chisq=" << globs->chisq;
+modules/dampIt.cc:      etaOk=((globs->wquer*t*normdx)<eta2);
+modules/freeMem.cc:  long nrExp=globs->nrExp;
+modules/freeMem.cc:  delete globs->gnuFp;
+modules/freeMem.cc:	  long nP=globs->npar;
+modules/freeMem.cc:  if(simit==FALSE && globs->covar!=NULL)
+modules/freeMem.cc:    free_dmatrix(globs->covar,1,globs->fitdim,1,globs->fitdim);
+modules/initialise.cc:  for(k=1;k<=globs->nrExp;k++)
+modules/initialise.cc:  globs->ngnu=gnu_n;
+modules/initialise.cc:  globs->gnuFp = new FILE *[gnu_n+1];
+modules/initialise.cc:      globs->gnuFp[k]=popen(outstr,"w");
+modules/initialise.cc:  long nrExp=globs->nrExp;
+modules/initialise.cc:	  for(i=1;i<=globs->npar;i++)
+modules/initialise.cc:	      if(globs->doP[i]==TRUE)
+modules/initialise.cc:	  setNrConstraints(&ex[nExp],globs->npar,ex[nExp].par);
+modules/initialise.cc:	  long nP=globs->npar;
+modules/initialise.cc:	  setInitialValues(&ex[nExp],globs->npar,ex[nExp].par,ex[nExp].y0);
+modules/initialise.cc:      globs->covar=NULL;
+modules/initialise.cc:  if(globs->noGnu==FALSE)
+modules/initialise.cc:  globs->cond=0;
+modules/initialise.cc:  globs->Lambda=1;
+modules/initialise.cc:  if(globs->initSpline==TRUE)
+modules/integrateRK.cc:  long odeint_MAXSTP=globs->maxstp;
+modules/integrateRK.cc:    rkqs(y,dydx,p,nvar,&x,h,eps,yscal,&hdid,&hnext,globs->rkqs_ign,derivs);
+modules/intODE.cc:  long nPExp=globs->npar;
+modules/intODE.cc:  double eps=globs->eps;  
+modules/intODE.cc:  if (globs->integrator==3)
+modules/intODE.cc:      int odeint_MAXSTP=globs->maxstp;
+modules/intODE.cc:      int stif=globs->stiff;
+modules/intODE.cc:      char doPStr[globs->npar+1];
+modules/intODE.cc:      for(long i=1;i<=globs->npar;i++)
+modules/intODE.cc:	doPStr[i]=(char)globs->doP[i];
+modules/intODE.cc:	      globs->rkqs_ign = (nPExp + nVar) * nVar;
+modules/intODE.cc:		  if(globs->integrator==1)
+modules/intODE.cc:		  else if(globs->integrator==2)
+modules/intODE.cc:	      globs->rkqs_ign = 0;
+modules/intODE.cc:		  if(globs->integrator==1)
+modules/intODE.cc:		  else if(globs->integrator==2)
+modules/intODE.cc:      dTabdp=d3tensor(1,tableLen,1,nvar,1,globs->npar);
+modules/intODE.cc:	for (j=1; j<=globs->npar; ++j)  
+modules/intODE.cc:		  for (m=1; m<=globs->npar; ++m)
+modules/intODE.cc:  if(doDerivs && (globs->noGnu==FALSE) && doPlot==TRUE)
+modules/intODE.cc:	  if(globs->gnuindex <= globs->ngnu)
+modules/intODE.cc:	      fprintf(globs->gnuFp[globs->gnuindex],"reset\n");
+modules/intODE.cc:	      fprintf(globs->gnuFp[globs->gnuindex],"set yrange[%f:%f]\n",ymin-0.01*ymin,ymax+0.01*ymax);
+modules/intODE.cc:	      fprintf(globs->gnuFp[globs->gnuindex],"set xrange[%f:%f]\n",ex->xMeasure[1],ex->xMeasure[ex->nMeasure]);	      
+modules/intODE.cc:	      fflush(globs->gnuFp[globs->gnuindex]);
+modules/intODE.cc:	      //fprintf(globs->gnuFp[globs->gnuindex],"plot \"gnuout.dat\" title \"\"w l 3,\"gnuout.dat\" u 1:3 title \"\" 1 \n");
+modules/intODE.cc:	      fprintf(globs->gnuFp[globs->gnuindex],"plot \"gnuout.dat\" using 1:3 title \"measured\", \"\" using 1:2 title \"predicted\" with lines \n");
+modules/intODE.cc:	      fflush(globs->gnuFp[globs->gnuindex]);
+modules/intODE.cc:	  globs->gnuindex++;
+modules/intODE.cc:    free_d3tensor(dTabdp,1,tableLen,1,nvar,1,globs->npar);
+modules/outFit.cc:  npar=globs->npar;     
+modules/outFit.cc:  double **errorS=dmatrix(1,globs->nrExp,1,nvar);
+modules/outFit.cc:  double **errorP=dmatrix(1,globs->nrExp,1,npar);
+modules/outFit.cc:  if(globs->strategy!=2)
+modules/outFit.cc:      for(nExp=1;nExp<=globs->nrExp;++nExp) 
+modules/outFit.cc:	      if(globs->y0fix[i]!=FALSE)
+modules/outFit.cc:		  errorS[nExp][i]=sqrt(globs->covar[ind][ind]);
+modules/outFit.cc:	      if(globs->doP[i]=='L')
+modules/outFit.cc:		  errorP[nExp][i]=sqrt(globs->covar[ind][ind]);
+modules/outFit.cc:	  if(globs->doP[i]==TRUE)
+modules/outFit.cc:	      for(nExp=1;nExp<=globs->nrExp;++nExp) 
+modules/outFit.cc:		  errorP[nExp][i]=sqrt(globs->covar[ind][ind]);
+modules/outFit.cc:    }  //end if(globs->strategy..)
+modules/outFit.cc:  if(globs->silent!=TRUE)
+modules/outFit.cc:      cout << "Number of iterations: " << globs->nIter << ", chi^2 = " << globs->chisq << "\n\n";
+modules/outFit.cc:	  if(globs->doP[j]!='L')
+modules/outFit.cc:	      if(globs->strategy!=2)
+modules/outFit.cc:		  for(nExp=1;nExp<=globs->nrExp;++nExp) 
+modules/outFit.cc:      for(i=1;i<=globs->nrExp;++i) 
+modules/outFit.cc:	      if(globs->doP[j]=='L')
+modules/outFit.cc:		  if(globs->strategy!=2)
+modules/outFit.cc:	      if(globs->strategy!=2)
+modules/outFit.cc:  free_dmatrix(errorS,1,globs->nrExp,1,nvar);
+modules/outFit.cc:  free_dmatrix(errorP,1,globs->nrExp,1,npar);
+modules/outSimit.cc:  if(globs->sig==0)
+modules/outSimit.cc:	    out << " " << y[k][l]+globs->sig*fabs(max[l]-min[l])*gasdev(&idum) << " " << globs->sig*fabs(max[l]-min[l]);
+modules/parse.cc:  globs->noGnu=FALSE;
+modules/parse.cc:  globs->eps=1e-6;
+modules/parse.cc:  globs->npar=NPARAMS; //defined in the model.cc file
+modules/parse.cc:  globs->noMeasurements=FALSE;
+modules/parse.cc:  globs->doP=ivector(1,globs->npar);
+modules/parse.cc:  for(k=1;k<=globs->npar;k++)
+modules/parse.cc:    globs->doP[k]=TRUE;
+modules/parse.cc:  globs->y0fix=ivector(1,NEQNS);
+modules/parse.cc:    globs->y0fix[k]=TRUE;
+modules/parse.cc:  globs->maxit=1000; //maximum # of iterations
+modules/parse.cc:  globs->gnuFp=NULL;
+modules/parse.cc:  globs->wait=FALSE;
+modules/parse.cc:  globs->usesig=FALSE;
+modules/parse.cc:  globs->integrator=1;
+modules/parse.cc:  globs->stiff=TRUE;
+modules/parse.cc:  globs->maxstp=5000; //maximum number of integration steps
+modules/parse.cc:  globs->minimp=1e-4; //minimum improvement per iteration
+modules/parse.cc:  globs->nowait=FALSE;
+modules/parse.cc:  globs->elastic=1.;
+modules/parse.cc:  globs->reg=FALSE;
+modules/parse.cc:  globs->epsilon=1e-10;
+modules/parse.cc:  globs->lambda=1e6;
+modules/parse.cc:  globs->simInit=FALSE;
+modules/parse.cc:  globs->pert=0.; //perturbate initial state (after simulating the ODE for initialization)
+modules/parse.cc:  globs->nodamp=FALSE;
+modules/parse.cc:  globs->initSpline=TRUE;
+modules/parse.cc:  globs->wquer=-1;
+modules/parse.cc:  globs->silent=FALSE;
+modules/parse.cc:  globs->strategy=1;  //multiple shooting
+modules/parse.cc:  globs->minimiser=2; //NAG
+modules/parse.cc:  globs->faktorL=dvector(1,NPARAMS);
+modules/parse.cc:  globs->faktorLexist=FALSE;
+modules/parse.cc:  	globs->faktorL[k]=-1;
+modules/parse.cc:      globs->nrExp=1;
+modules/parse.cc:      ex=new GlobExp[globs->nrExp+1];   
+modules/parse.cc:      for(k=1;k<=globs->npar;k++)
+modules/parse.cc:      globs->nrExp=0;
+modules/parse.cc:      sprintf(str,"%s.%d",name,globs->nrExp);
+modules/parse.cc:	      globs->nrExp++;
+modules/parse.cc:	      sprintf(str,"%s.%d",name,globs->nrExp);
+modules/parse.cc:      if(globs->nrExp==0)
+modules/parse.cc:	      globs->eps=fabs(atof(optarg));
+modules/parse.cc:	      globs->noGnu=TRUE;
+modules/parse.cc:	      globs->noMeasurements=TRUE;
+modules/parse.cc:	      if(strlen(optarg)!=globs->npar)
+modules/parse.cc:		  cerr << strlen(optarg) << " parameter(s) specified instead of " <<  globs->npar << ".\n";
+modules/parse.cc:	      for(k=0;k < globs->npar;k++)
+modules/parse.cc:		    globs->doP[k+1]=FALSE;  //no fit
+modules/parse.cc:		    globs->doP[k+1]='L';    //treated as local
+modules/parse.cc:		    globs->doP[k+1]=TRUE;   //do fit
+modules/parse.cc:	      globs->maxit=abs(atol(optarg));
+modules/parse.cc:	      globs->wait=TRUE;
+modules/parse.cc:	      globs->usesig=TRUE;
+modules/parse.cc:	      globs->integrator=abs(atoi(optarg));
+modules/parse.cc:	      globs->maxstp=abs(atoi(optarg));
+modules/parse.cc:	      globs->minimp=fabs(atof(optarg));
+modules/parse.cc:	      globs->nowait=TRUE;
+modules/parse.cc:	      globs->elastic=fabs(atof(optarg));
+modules/parse.cc:	      if(globs->elastic > 1. || globs->elastic == 0.)
+modules/parse.cc:	      globs->reg=TRUE;
+modules/parse.cc:	      globs->epsilon=fabs(atof(optarg));
+modules/parse.cc:	      globs->lambda=fabs(atof(optarg));
+modules/parse.cc:	      globs->simInit=TRUE;
+modules/parse.cc:	      globs->pert=fabs(atof(optarg));
+modules/parse.cc:		    globs->y0fix[k+1]=FALSE;
+modules/parse.cc:		    globs->y0fix[k+1]=TRUE;
+modules/parse.cc:	      globs->nodamp=TRUE;
+modules/parse.cc:	      globs->strategy=abs(atoi(optarg));
+modules/parse.cc:	      globs->minimiser=abs(atoi(optarg));
+modules/parse.cc:	      get_list(globs->npar,globs->faktorL,optarg," local parameter constraints ");
+modules/parse.cc:	      globs->faktorLexist=TRUE;
+modules/parse.cc:      ex=new GlobExp[globs->nrExp+1];   
+modules/parse.cc:      for(nExp=1;nExp<=globs->nrExp;nExp++)
+modules/parse.cc:	  for(k=1;k<=globs->npar;k++)
+modules/parse.cc:		   get_list(globs->npar,ex[nExp].par,optarg," parameter ");
+modules/parse.cc:	  get_list(globs->npar,ex[1].par,optarg," parameter ");
+modules/parse.cc:	  globs->eps=fabs(atof(optarg));
+modules/parse.cc:	  globs->noGnu=TRUE;
+modules/parse.cc:	  globs->noMeasurements=TRUE;
+modules/parse.cc:	  if(strlen(optarg)!=globs->npar)
+modules/parse.cc:	      cerr << strlen(optarg) << " parameter(s) specified instead of " <<  globs->npar << ".\n";
+modules/parse.cc:	  for(k=0;k < globs->npar;k++)
+modules/parse.cc:		globs->doP[k+1]=FALSE;
+modules/parse.cc:		globs->doP[k+1]='L'; 
+modules/parse.cc:		globs->doP[k+1]=TRUE;
+modules/parse.cc:	  globs->maxit=abs(atol(optarg));
+modules/parse.cc:	  globs->wait=TRUE;
+modules/parse.cc:	  globs->usesig=TRUE;
+modules/parse.cc:	  globs->integrator=abs(atoi(optarg));
+modules/parse.cc:	  globs->maxstp=abs(atoi(optarg));
+modules/parse.cc:	  globs->minimp=fabs(atof(optarg));
+modules/parse.cc:	  globs->nowait=TRUE;
+modules/parse.cc:	  globs->elastic=fabs(atof(optarg));
+modules/parse.cc:	  if(globs->elastic > 1. || globs->elastic == 0.)
+modules/parse.cc:	  globs->reg=TRUE;
+modules/parse.cc:	  globs->epsilon=fabs(atof(optarg));
+modules/parse.cc:	  globs->lambda=fabs(atof(optarg));
+modules/parse.cc:	  globs->simInit=TRUE;
+modules/parse.cc:	  globs->pert=fabs(atof(optarg));
+modules/parse.cc:		globs->y0fix[k+1]=FALSE;
+modules/parse.cc:		globs->y0fix[k+1]=TRUE;
+modules/parse.cc:	  globs->nodamp=TRUE;
+modules/parse.cc:	  globs->strategy=abs(atoi(optarg));
+modules/parse.cc:	  globs->minimiser=abs(atoi(optarg));
+modules/parse.cc:	  get_list(globs->npar,globs->faktorL,optarg," local paramter constraints ");
+modules/parse.cc:	  globs->faktorLexist=TRUE;
+modules/parse.cc:      for(k=1;k<=globs->nrExp;k++)
+modules/parseSimit.cc:  globs->noGnu=FALSE;
+modules/parseSimit.cc:  globs->eps=1e-6;
+modules/parseSimit.cc:  globs->npar=NPARAMS;
+modules/parseSimit.cc:  globs->noMeasurements=FALSE;
+modules/parseSimit.cc:  globs->doP=ivector(1,globs->npar);
+modules/parseSimit.cc:  for(k=1;k<=globs->npar;k++)
+modules/parseSimit.cc:    globs->doP[k]=TRUE;
+modules/parseSimit.cc:  globs->maxit=1000;
+modules/parseSimit.cc:  globs->gnuFp=NULL;
+modules/parseSimit.cc:  globs->wait=FALSE;
+modules/parseSimit.cc:  globs->usesig=FALSE;
+modules/parseSimit.cc:  globs->integrator=1;
+modules/parseSimit.cc:  globs->stiff=TRUE;
+modules/parseSimit.cc:  globs->maxstp=5000;
+modules/parseSimit.cc:  globs->minimp=0.05;
+modules/parseSimit.cc:  globs->nowait=FALSE;
+modules/parseSimit.cc:  globs->elastic=1.;
+modules/parseSimit.cc:  globs->reg=FALSE;
+modules/parseSimit.cc:  globs->epsilon=1e-10;
+modules/parseSimit.cc:  globs->lambda=1e6;
+modules/parseSimit.cc:  globs->dt=0.1;
+modules/parseSimit.cc:  globs->sig=0.;
+modules/parseSimit.cc:  globs->nrExp=1;
+modules/parseSimit.cc:  globs->initSpline=TRUE;
+modules/parseSimit.cc:      globs->nrExp=1;
+modules/parseSimit.cc:      ex=new GlobExp[globs->nrExp+1];  
+modules/parseSimit.cc:      for(k=1;k<=globs->npar;k++)
+modules/parseSimit.cc:      globs->nrExp=1;
+modules/parseSimit.cc:      ex=new GlobExp[globs->nrExp+1];   
+modules/parseSimit.cc:      for(k=1;k<=globs->npar;k++)
+modules/parseSimit.cc:      sprintf(str,"%s.%d",name,globs->nrExp);
+modules/parseSimit.cc:	      globs->dt=fabs(atof(optarg));
+modules/parseSimit.cc:	      get_list(globs->npar,ex[1].par,optarg," parameter ");
+modules/parseSimit.cc:	      globs->eps=fabs(atof(optarg));
+modules/parseSimit.cc:	      globs->sig=fabs(atof(optarg));
+modules/parseSimit.cc:	      if(strlen(optarg)!=globs->npar)
+modules/parseSimit.cc:		  cerr << strlen(optarg) << " parameter(s) specified instead of " <<  globs->npar << ".\n";
+modules/parseSimit.cc:	      for(k=0;k < globs->npar;k++)
+modules/parseSimit.cc:		    globs->doP[k+1]=FALSE;
+modules/parseSimit.cc:		    globs->doP[k+1]=TRUE;
+modules/parseSimit.cc:	      globs->maxit=abs(atol(optarg));
+modules/parseSimit.cc:	      globs->integrator=abs(atoi(optarg));
+modules/parseSimit.cc:	      globs->maxstp=abs(atoi(optarg));
+modules/parseSimit.cc:	  globs->dt=fabs(atof(optarg));
+modules/parseSimit.cc:	  get_list(globs->npar,ex[1].par,optarg," parameter ");
+modules/parseSimit.cc:	  globs->eps=fabs(atof(optarg));
+modules/parseSimit.cc:	  globs->sig=fabs(atof(optarg));
+modules/parseSimit.cc:	  if(strlen(optarg)!=globs->npar)
+modules/parseSimit.cc:	      cerr << strlen(optarg) << " parameter(s) specified instead of " <<  globs->npar << ".\n";
+modules/parseSimit.cc:	  for(k=0;k < globs->npar;k++)
+modules/parseSimit.cc:		globs->doP[k+1]=FALSE;
+modules/parseSimit.cc:		globs->doP[k+1]=TRUE;
+modules/parseSimit.cc:	  globs->maxit=abs(atol(optarg));
+modules/parseSimit.cc:	  globs->integrator=abs(atol(optarg));
+modules/parseSimit.cc:	  globs->maxstp=abs(atoi(optarg));
+modules/setMesh.cc:  if (globs->noMeasurements==FALSE) 
+modules/simInit.cc:	ex->yTry[i][j]+=globs->pert*ex->yTry[i][j]*gasdev(&idum);
+modules/solvLin.cc:  double elastic=globs->elastic;
+modules/solvLin.cc:  nP=globs->npar;
+modules/solvLin.cc:  for(nExp=1;nExp<=globs->nrExp;++nExp) 
+modules/solvLin.cc:  double elastic=globs->elastic;
+modules/solvLin.cc:  npar=globs->npar;     
+modules/solvLin.cc:  for(nExp=1;nExp<=globs->nrExp;++nExp) 
+modules/solvLin.cc:	  if(globs->y0fix[i]!=FALSE)
+modules/solvLin.cc:	  if(globs->doP[i]=='L')
+modules/solvLin.cc:      if(globs->doP[i]==TRUE)
+modules/solvLin.cc:	  for(nExp=1;nExp<=globs->nrExp;++nExp) 
+modules/solvLin.cc:  for(nExp=1;nExp<=globs->nrExp;++nExp) 
+modules/solvLin.cc:  long npar=globs->npar;
+modules/solvLin.cc:  long nrExp=globs->nrExp;
+modules/solvLin.cc:      if(globs->y0fix[i]!=FALSE)
+modules/solvLin.cc:      if(globs->doP[i]=='L')
+modules/solvLin.cc:      else if(globs->doP[i]!=FALSE)
+modules/solvLin.cc:  if(globs->faktorLexist)
+modules/solvLin.cc:	  if(globs->y0fix[j]!=FALSE)
+modules/solvLin.cc:	  if(globs->doP[j]=='L')
+modules/solvLin.cc:	  else if(globs->doP[j]!=FALSE)
+modules/solvLin.cc:	  if(globs->y0fix[j]!=FALSE)
+modules/solvLin.cc:	  if(globs->doP[j]=='L')
+modules/solvLin.cc:	  else if(globs->doP[j]!=FALSE)
+modules/solvLin.cc:	  if(globs->y0fix[j]!=FALSE)
+modules/solvLin.cc:	  if(globs->doP[j]=='L')
+modules/solvLin.cc:	  else if(globs->doP[j]!=FALSE)
+modules/solvLin.cc:  if(globs->faktorLexist)
+modules/solvLin.cc://   	   cerr<<"i="<< i<<" faktorL[i]="<<globs->faktorL[i]<<endl;
+modules/solvLin.cc://   	   if(globs->faktorL[i]<0)
+modules/solvLin.cc://   	cerr<<"i="<< i<<" faktorL[i]="<<globs->faktorL[i]<<endl;
+modules/solvLin.cc://   			cerr<<"doP[index]="<<globs->doP[index]<<" index="<<index<<" i="<<i<<endl;
+modules/solvLin.cc:	  		if(globs->doP[index]=='L')
+modules/solvLin.cc:	  //	cerr<<"pLmean["<<i<<"]="<<pLmean[i]<<" globs->faktorL["<<i<<"]"<<globs->faktorL[i]<<endl;
+modules/solvLin.cc:	  	pLsig[i]=(globs->faktorL[i]*pLmean[i]-pLmean[i])/(1+globs->faktorL[i]);
+modules/solvLin.cc:  				if(globs->doP[index]=='L')
+modules/solvLin.cc:  if(globs->reg==TRUE)
+modules/solvLin.cc:	  if(fabs(diag[i]/maxx)<=globs->epsilon)
+modules/solvLin.cc:	      reg=globs->lambda*maxx;
+modules/solvLin.cc:      globs->cond=cond;
+modules/solvLin.cc:    }//end if(globs->reg==TRUE)
+modules/solvLin.cc:  globs->fitdim=fitDim;
+modules/solvLin.cc:  if(globs->covar==NULL)
+modules/solvLin.cc:    globs->covar=dmatrix(1,fitDim,1,fitDim);
+modules/solvLin.cc:  if(globs->minimiser==1)
+modules/solvLin.cc:		globs->covar[i][j] = w[(j-1)*mdw+i-1];
+modules/solvLin.cc:  else if(globs->minimiser==2)
